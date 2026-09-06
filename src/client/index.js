@@ -46,6 +46,7 @@ function apply(ctx) {
 
   const slots = ctx.slots || (ctx.get && ctx.get('slots'));
   const connection = ctx.connection || (ctx.get && ctx.get('connection'));
+  console.info('[dsh-ielts-examiner] client apply: slots=', !!slots, 'connection=', !!connection);
   if (!slots) return;
 
   const api = createApi(connection);
