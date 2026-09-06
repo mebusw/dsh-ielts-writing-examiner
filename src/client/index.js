@@ -31,7 +31,7 @@ const panel = (() => {
   };
 })();
 
-function apply(slots, connection) {
+function apply(ctx) {
   const React = require('react');
   const h = React.createElement;
   const { useState, useEffect } = React;
@@ -43,6 +43,10 @@ function apply(slots, connection) {
     tag.textContent = STYLE;
     document.head.appendChild(tag);
   }
+
+  const slots = ctx.slots || (ctx.get && ctx.get('slots'));
+  const connection = ctx.connection || (ctx.get && ctx.get('connection'));
+  if (!slots) return;
 
   const api = createApi(connection);
   const c = createComponents(h);
