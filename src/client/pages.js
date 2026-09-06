@@ -1,12 +1,15 @@
-// pages.js — factory(h, c) returns { Root, Nav, NewPractice, Loading, Result, SessionDetail }.
+// pages.js — factory(React, h, c) returns { Root, Nav, NewPractice, Loading, Result, SessionDetail }.
 //
 // c = { iwCard, iwBtn, iwBadge, iwDot, iwField, iwSelect, iwTextarea, iwSpinner }
 // All pages are function components (no JSX, no class). State is held in Root.
+// React is threaded through so Root can call useState/useEffect/useRef (those
+// names must resolve to the React instance from the ModuleLoader's require('react')).
 
 import { renderMarkdown, renderMermaidIn } from './md.js';
 import { exportNodeToPdf } from './export-pdf.js';
 
-export function createPages(h, c) {
+export function createPages(React, h, c) {
+  const { useState, useEffect, useRef, useCallback } = React;
   const { iwCard, iwBtn, iwBadge, iwDot, iwField, iwSelect, iwTextarea, iwSpinner } = c;
 
   function wordCount(text) {
@@ -122,11 +125,11 @@ export function createPages(h, c) {
   }
 
   function QuestionPreview({ q }) {
-    const [collapsed, setCollapsed] = React.useState(false);
-    const [overThreshold, setOverThreshold] = React.useState(false);
-    const bodyRef = React.useRef(null);
+    const [collapsed, setCollapsed] = useState(false);
+    const [overThreshold, setOverThreshold] = useState(false);
+    const bodyRef = useRef(null);
 
-    React.useEffect(() => {
+    useEffect(() => {
       // After mount, measure scrollHeight and decide whether to show toggle.
       // Default = expanded per migration-guide §5 视图 A.
       if (bodyRef.current) {
@@ -191,7 +194,7 @@ export function createPages(h, c) {
     };
 
     // After mount, render mermaid diagrams embedded in analysis.
-    React.useEffect(() => {
+    useEffect(() => {
       if (rootRef?.current) renderMermaidIn(rootRef.current);
     }, [session.id, session.status]);
 
@@ -285,19 +288,19 @@ export function createPages(h, c) {
   // Root — top-level state. Mounts Nav + main view.
   // ────────────────────────────────────────────────────────────────
   function Root({ api, onClose }) {
-    const [view, setView] = React.useState('boot');   // boot | new | loading | result | detail
-    const [questions, setQuestions] = React.useState([]);
-    const [sessions, setSessions] = React.useState([]);
-    const [activeId, setActiveId] = React.useState(null);
-    const [selectedQ, setSelectedQ] = React.useState('');
-    const [essay, setEssay] = React.useState('');
-    const [active, setActive] = React.useState(null);
-    const [error, setError] = React.useState(null);
-    const [saving, setSaving] = React.useState(false);
-    const [lang, setLang] = React.useState('zh');
-    const resultRef = React.useRef(null);
+    const [view, setView] = useState('boot');   // boot | new | loading | result | detail
+    const [questions, setQuestions] = useState([]);
+    const [sessions, setSessions] = useState([]);
+    const [activeId, setActiveId] = useState(null);
+    const [selectedQ, setSelectedQ] = useState('');
+    const [essay, setEssay] = useState('');
+    const [active, setActive] = useState(null);
+    const [error, setError] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [lang, setLang] = useState('zh');
+    const resultRef = useRef(null);
 
-    const refreshSessions = React.useCallback(async () => {
+    const refreshSessions = useCallback(async () => {
       try {
         const list = await api.listSessions();
         setSessions(list);
@@ -306,7 +309,7 @@ export function createPages(h, c) {
     }, [api]);
 
     // Boot: load questions + sessions; pick default view.
-    React.useEffect(() => {
+    useEffect(() => {
       (async () => {
         try {
           const [qs, list] = await Promise.all([api.listQuestions(), refreshSessions()]);
@@ -326,13 +329,13 @@ export function createPages(h, c) {
     }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
     // Auto-refresh Nav every 3s.
-    React.useEffect(() => {
+    useEffect(() => {
       const t = setInterval(refreshSessions, 3000);
       return () => clearInterval(t);
     }, [refreshSessions]);
 
     // Pulse active session while it's running; flip view to Result when done.
-    React.useEffect(() => {
+    useEffect(() => {
       if (!activeId) return;
       if (!active || active.status !== 'running') return;
       if (view === 'result' || view === 'loading') {
@@ -404,7 +407,7 @@ export function createPages(h, c) {
     }
 
     // Auto-save essay every 1.5s of inactivity.
-    const saveTimer = React.useRef(null);
+    const saveTimer = useRef(null);
     function handleEssayChange(v) {
       setEssay(v);
       if (saveTimer.current) clearTimeout(saveTimer.current);

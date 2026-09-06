@@ -51,7 +51,7 @@ function apply(ctx) {
 
   const api = createApi(connection);
   const c = createComponents(h);
-  const p = createPages(h, c);
+  const p = createPages(React, h, c);
 
   function usePanelOpen() {
     const [open, setOpen] = useState(panel.open);
