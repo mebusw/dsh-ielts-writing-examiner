@@ -59,19 +59,8 @@ const ctx = {
     _routes: [],
     register(spec) { this._routes.push(spec); },
     async _dispatch(method, urlPath) {
-      // very small dispatcher for verify: exact then prefix.
       for (const r of this._routes) {
-        if (r.kind === 'exact' && r.path === urlPath) {
-          return new Promise((resolve) => {
-            const res = {
-              _status: 200, _headers: {}, _body: null,
-              writeHead(s, h) { this._status = s; Object.assign(this._headers, h || {}); },
-              end(b) { this._body = b; resolve({ status: this._status, headers: this._headers, body: this._body }); },
-            };
-            r.handler({ method, url: urlPath }, res);
-          });
-        }
-        if (r.kind === 'prefix' && urlPath.startsWith(r.path)) {
+        if ((r.kind === 'exact' && r.path === urlPath) || (r.kind === 'prefix' && urlPath.startsWith(r.path))) {
           return new Promise((resolve) => {
             const res = {
               _status: 200, _headers: {}, _body: null,
@@ -85,6 +74,13 @@ const ctx = {
       return null;
     },
   },
+  // Stub LLM services — verify that the plugin asks them for config.
+  agentDefaultModel: {
+    currentSelection() { return { provider: 'deepseek-official', model: 'deepseek-v4-flash' }; },
+  },
+  credentials: {
+    async resolve(ref) { return { value: 'sk-test-stub', ref }; },
+  },
 };
 
 console.log('[verify] booting plugin host half…');
@@ -92,7 +88,7 @@ const mod = await import(LIB);
 const result = mod.apply(ctx, { dataDir: DATA_ROOT });
 
 truthy('apply() returns dataRoot', result.dataRoot === DATA_ROOT);
-eq('inject[]', result.inject, ['connection', 'webServer']);
+eq('inject[]', result.inject, ['connection', 'webServer', 'agentDefaultModel', 'credentials']);
 
 const rpc = ctx.connection.rpc;
 
@@ -172,6 +168,27 @@ truthy('unknown endpoint throws', threw);
 // 10. health
 const health = await rpc.call('/ielts-examiner', 'health');
 truthy('health.ok', health?.ok === true);
+
+// 11. LLM wiring — resolveDefaultModel reads from ctx services
+console.log('\n[verify] LLM wiring');
+const { resolveDefaultModel } = await import('./src/host/default-model.js');
+const resolved = await resolveDefaultModel({
+  agentDefaultModel: ctx.agentDefaultModel,
+  credentials: ctx.credentials,
+});
+eq('resolveDefaultModel.provider', resolved.provider, 'deepseek-official');
+eq('resolveDefaultModel.model', resolved.model, 'deepseek-v4-flash');
+eq('resolveDefaultModel.baseUrl', resolved.baseUrl, 'https://api.deepseek.com/v1');
+eq('resolveDefaultModel.apiKey', resolved.apiKey, 'sk-test-stub');
+
+// 12. resolveDefaultModel throws cleanly when nothing configured
+let threwClean = false;
+try {
+  await resolveDefaultModel({});
+} catch (e) {
+  threwClean = /未配置default模型|未配置默认模型/.test(e.message);
+}
+truthy('resolveDefaultModel throws clear error when no ctx + no env', threwClean);
 
 // Clean up verify data (don't leave .verify-data lying around).
 rmSync(DATA_ROOT, { recursive: true, force: true });

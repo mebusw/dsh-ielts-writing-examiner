@@ -80,13 +80,13 @@ function safeParseJson(text) {
   return JSON.parse(s);
 }
 
-export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot }) {
+export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot, deps = {} }) {
   const session = store.get(sessionId);
   if (!session) throw new Error(`scoreEssay: no such session ${sessionId}`);
   const question = findById(pluginRoot, session.questionId);
   if (!question) throw new Error(`scoreEssay: question ${session.questionId} not found in bank`);
 
-  const m = resolveDefaultModel();
+  const m = await resolveDefaultModel(deps);
   const assetBase = `${m.baseUrl.replace(/\/v1\/?$/, '')}/ielts-examiner/asset`;
   // Note: assetBase is only used to render image links inside the prompt; the
   // browser actually fetches them from DSH's webServer, but LLM doesn't read

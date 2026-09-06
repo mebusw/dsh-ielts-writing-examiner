@@ -28,7 +28,7 @@ import { createSessionStore } from './session-store.js';
 import { loadBank, findById } from './question-bank.js';
 
 export const name = 'dsh-ielts-examiner';
-export const inject = ['connection', 'webServer'];
+export const inject = ['connection', 'webServer', 'agentDefaultModel', 'credentials'];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // After esbuild bundles src/host/* into lib/index.js, HERE is the lib/ dir.
@@ -125,10 +125,12 @@ export function apply(ctx, config = {}) {
         if (s.status === 'running') return { ok: true, status: 'running', alreadyRunning: true };
         store.markRunning(id);
         // Fire-and-forget LLM call; populates result.json on completion.
-        // Implementation lives in ./llm.js (injected in next task) to keep
-        // this file focused on the RPC surface.
+        const deps = {
+          agentDefaultModel: ctx.agentDefaultModel || ctx.get?.('agentDefaultModel'),
+          credentials: ctx.credentials || ctx.get?.('credentials'),
+        };
         const { scoreEssay } = await import('./llm.js');
-        scoreEssay({ store, sessionId: id, dataRoot, pluginRoot: PLUGIN_ROOT })
+        scoreEssay({ store, sessionId: id, dataRoot, pluginRoot: PLUGIN_ROOT, deps })
           .catch((e) => {
             logError('scoreEssay', e);
             try { store.markFailed(id, e?.message || String(e)); } catch {}
