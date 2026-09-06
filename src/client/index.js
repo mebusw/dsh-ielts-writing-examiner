@@ -16,7 +16,7 @@ import { createPages } from './pages.js';
 
 const RPC = '/ielts-examiner';
 const ASSET_BASE = '/ielts-examiner/asset';
-const inject = ['slots', 'connection'];
+const inject = ['slots', 'connection', 'workspaces', 'sessions'];
 
 // ── shared panel open/close state ──────────────────────────────
 // FooterAction and WorkbenchPanel both call usePanelOpen() so they always
