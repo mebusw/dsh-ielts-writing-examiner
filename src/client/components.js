@@ -4,21 +4,23 @@
 // the ModuleLoader factory, not at module top level.
 
 export function createComponents(h) {
-  function iwCard({ title, action, children, className = '', key }) {
+  function iwCard({ title, action, children, className = '', key }, ...restChildren) {
+    const body = children !== undefined ? [children] : restChildren;
     return h('div', { key, className: 'iw-card ' + className },
       title ? h('h3', { key: 't' }, title) : null,
       action ? h('div', { key: 'a', className: 'iw-card-action' }, action) : null,
-      children,
+      ...body,
     );
   }
 
-  function iwBtn({ primary, ghost, tiny, disabled, onClick, children, className = '', title, type = 'button', key }) {
+  function iwBtn({ primary, ghost, tiny, disabled, onClick, children, className = '', title, type = 'button', key }, ...restChildren) {
     const cls = ['iw-btn'];
     if (primary) cls.push('iw-btn-primary');
     if (ghost) cls.push('iw-btn-ghost');
     if (tiny) cls.push('iw-btn-tiny');
     if (className) cls.push(className);
-    return h('button', { key, type, className: cls.join(' '), disabled, onClick, title }, children);
+    const kids = children !== undefined ? [children] : restChildren;
+    return h('button', { key, type, className: cls.join(' '), disabled, onClick, title }, ...kids);
   }
 
   function iwBadge({ band, key }) {
@@ -35,11 +37,12 @@ export function createComponents(h) {
     return h('span', { key, className: 'iw-dot ' + (status || 'idle'), title: status || 'idle' });
   }
 
-  function iwField({ label, counter, children, key }) {
+  function iwField({ label, counter, children, key }, ...restChildren) {
+    const body = children !== undefined ? [children] : restChildren;
     return h('label', { key, className: 'iw-field' },
       h('span', { key: 'l' }, label,
         counter ? h('span', { key: 'c', className: 'iw-counter' }, counter) : null),
-      children,
+      ...body,
     );
   }
 
