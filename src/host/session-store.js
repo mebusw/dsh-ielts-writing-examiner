@@ -57,10 +57,21 @@ function readJsonSafe(file) {
   }
 }
 
-/** Filesystem-derived stage for a session dir. */
+/** Filesystem-derived stage for a session dir.
+ *
+ * Returns the same 4-state enum the UI uses:
+ *   - 'failed'  : meta.json exists with status='failed'
+ *   - 'done'    : result.json exists
+ *   - 'running' : essay.txt exists but no result yet (LLM in flight or pending)
+ *   - 'idle'    : session created but no essay written yet
+ */
 function stageOf(sessionDir) {
+  const meta = existsSync(join(sessionDir, 'meta.json'))
+    ? readJsonSafe(join(sessionDir, 'meta.json'))
+    : null;
+  if (meta?.status === 'failed') return 'failed';
   if (existsSync(join(sessionDir, 'result.json'))) return 'done';
-  if (existsSync(join(sessionDir, 'meta.json'))) return 'running';
+  if (existsSync(join(sessionDir, 'essay.txt'))) return 'running';
   return 'idle';
 }
 

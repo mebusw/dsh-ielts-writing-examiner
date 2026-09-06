@@ -31,7 +31,9 @@ export const name = 'dsh-ielts-examiner';
 export const inject = ['connection', 'webServer'];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PLUGIN_ROOT = resolve(join(HERE, '..', '..'));
+// After esbuild bundles src/host/* into lib/index.js, HERE is the lib/ dir.
+// One level up is the package root where package.json + assets/ + prompts/ live.
+const PLUGIN_ROOT = resolve(join(HERE, '..'));
 const ASSETS_DIR = join(PLUGIN_ROOT, 'assets');
 const IMG_DIR = join(ASSETS_DIR, 'images-for-task1');
 const PROMPT_SRC = join(PLUGIN_ROOT, 'prompts', '雅思写作.compressed.prompt.md');

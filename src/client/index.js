@@ -1,33 +1,32 @@
-// dsh-ielts-examiner client half (browser).
+// dsh-ielts-examiner client entry (factory body).
 //
-// Wrapped by scripts/build.mjs into window.__ModuleLoader__.load({ id, factory }).
-// Factory's `require` provides react; factory returns { inject, apply }.
-//
-// Mounts the overlay via slots.sidebar.footer.action + slots.shell.overlay.
-// All RPC (/ielts-examiner) goes through `connection.rpc.handle` style calls.
+// This file is bundled by scripts/build.mjs. The bundle is then wrapped in
+// window.__ModuleLoader__.load({ id, factory }). Inside the factory, `require`
+// gives access to React (provided by @deepseek-ai/dsh-client-runtime).
 
-const inject = ['slots', 'connection'];
+import { STYLE } from './styles.js';
+import { createApi } from './api.js';
+import { createComponents } from './components.js';
+import { createPages } from './pages.js';
 
 const RPC = '/ielts-examiner';
-
-// Component, page, style, md, api, export-pdf modules — populated in subsequent steps.
-// Each is assigned at runtime via the ModuleLoader require graph; for now the
-// skeleton just mounts the footer action and renders an empty overlay.
-const components = globalThis.__iw_components__ || {};
-const pages = globalThis.__iw_pages__ || {};
-const styles = globalThis.__iw_styles__ || '';
+const ASSET_BASE = '/ielts-examiner/asset';
 
 function apply(slots, connection) {
   const React = require('react');
   const h = React.createElement;
 
   // Inject stylesheet once per page load.
-  if (styles && !document.getElementById('iw-styles')) {
+  if (typeof document !== 'undefined' && !document.getElementById('iw-styles')) {
     const tag = document.createElement('style');
     tag.id = 'iw-styles';
-    tag.textContent = styles;
+    tag.textContent = STYLE;
     document.head.appendChild(tag);
   }
+
+  const api = createApi(connection);
+  const c = createComponents(h);
+  const p = createPages(h, c);
 
   let overlayOpen = false;
 
@@ -45,16 +44,26 @@ function apply(slots, connection) {
 
   function renderOverlay() {
     if (!overlayOpen) return null;
-    return h(pages.Root, { connection, onClose: () => {
-      overlayOpen = false;
-      slots.shell.overlay.update(null);
-    }});
+    return h('div', { className: 'iw-shell-root' },
+      h('div', { className: 'iw-shell-nav' }),
+      h('div', { className: 'iw-shell-panel' },
+        h(p.Root, { api, onClose: () => {
+          overlayOpen = false;
+          slots.shell.overlay.update(null);
+        }}),
+      ),
+    );
   }
 
-  slots.sidebar.footer.action.add(FooterAction);
-  // Initial empty mount — overlay opens on click.
-  slots.shell.overlay.update(null);
+  if (slots.sidebar?.footer?.action?.add) {
+    slots.sidebar.footer.action.add(FooterAction);
+  }
+  if (slots.shell?.overlay?.update) {
+    slots.shell.overlay.update(null);
+  }
 }
 
-exports.inject = inject;
+exports.inject = ['slots', 'connection'];
 exports.apply = apply;
+exports.RPC = RPC;
+exports.ASSET_BASE = ASSET_BASE;
