@@ -11,6 +11,7 @@ import { createPages } from './pages.js';
 
 const RPC = '/ielts-examiner';
 const ASSET_BASE = '/ielts-examiner/asset';
+const inject = ['slots', 'connection'];
 
 function apply(slots, connection) {
   const React = require('react');
@@ -63,7 +64,9 @@ function apply(slots, connection) {
   }
 }
 
-exports.inject = ['slots', 'connection'];
-exports.apply = apply;
-exports.RPC = RPC;
-exports.ASSET_BASE = ASSET_BASE;
+// Surface to the ModuleLoader wrapper. esbuild bundles this file as an IIFE,
+// so we write to a globalThis slot the wrapper can read after eval.
+// `inject` is a top-level const (not via exports.*) so the IIFE closure can
+// capture it cleanly.
+const __iw_exports__ = { inject, apply, RPC, ASSET_BASE };
+globalThis.__iw_exports__ = __iw_exports__;
