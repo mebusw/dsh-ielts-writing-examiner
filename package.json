@@ -1,6 +1,6 @@
 {
   "name": "dsh-ielts-examiner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "IELTS 写作练习与 AI 评分。题目 → 作文 → AI 评分 + 学习记录层。DSH web-profile plugin.",
   "type": "module",
   "main": "./lib/index.js",
