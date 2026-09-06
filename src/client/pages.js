@@ -76,7 +76,8 @@ export function createPages(React, h, c) {
   // NewPractice — pick question + write essay.
   // ────────────────────────────────────────────────────────────────
   function NewPractice({ questions, selectedId, onSelect, essay, onEssayChange, onScore, error, saving }) {
-    const q = questions.find((x) => x.id === selectedId);
+    const qArr = Array.isArray(questions) ? questions : [];
+    const q = qArr.find((x) => x && x.id === selectedId);
     const wc = wordCount(essay);
     return h('div', { className: 'iw-main' },
       h('div', { className: 'iw-main-inner' },
@@ -90,11 +91,11 @@ export function createPages(React, h, c) {
               placeholder: '—— 请选择一道题 ——',
               options: [
                 { value: 'g1', label: '── Task 1 ──', disabled: true },
-                ...questions.filter((x) => x.task === '1').map((x) => ({
+                ...qArr.filter((x) => x.task === '1').map((x) => ({
                   value: x.id, label: `${x.title}（${x.type}）`,
                 })),
                 { value: 'g2', label: '── Task 2 ──', disabled: true },
-                ...questions.filter((x) => x.task === '2').map((x) => ({
+                ...qArr.filter((x) => x.task === '2').map((x) => ({
                   value: x.id, label: `${x.title}`,
                 })),
               ],
