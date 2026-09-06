@@ -19,6 +19,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "verify": "node scripts/build.mjs && node verify.mjs",
+    "pack:dry": "npm pack --dry-run",
+    "publish:dry": "npm publish --dry-run",
+    "reinstall": "bash scripts/reinstall.sh",
     "test:e2e": "playwright test --config e2e/playwright.config.ts"
   },
   "engines": {

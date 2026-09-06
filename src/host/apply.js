@@ -79,8 +79,6 @@ export function apply(ctx, config = {}) {
 }
 
 function _applyInner(ctx, config = {}) {
-  // DEBUG: confirm apply() is reached at all
-  console.error('[dsh-ielts-examiner] apply() entered, ctx keys:', Object.keys(ctx || {}));
   const dataRoot = config.dataDir
     || process.env.IELTS_EXAMINER_HOME
     || join(homedir(), '.ielts-examiner');
