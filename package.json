@@ -14,9 +14,7 @@
     "cordis.patch.yml",
     "assets",
     "prompts",
-    "references",
-    "README.md",
-    "NOTICE.md"
+    "README.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

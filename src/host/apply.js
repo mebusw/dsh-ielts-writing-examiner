@@ -69,6 +69,16 @@ function isSafeImageName(name) {
 }
 
 export function apply(ctx, config = {}) {
+  try {
+    return _applyInner(ctx, config);
+  } catch (e) {
+    // Surface the real error so the loader message isn't just "Reflect.has called on non-object".
+    console.error('[dsh-ielts-examiner] apply failed:', e?.stack || e);
+    throw e;
+  }
+}
+
+function _applyInner(ctx, config = {}) {
   const dataRoot = config.dataDir
     || process.env.IELTS_EXAMINER_HOME
     || join(homedir(), '.ielts-examiner');
