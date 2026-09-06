@@ -1,0 +1,10 @@
+node_modules/
+lib/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+playwright-report/
+test-results/
+e2e/.auth/

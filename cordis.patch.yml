@@ -1,0 +1,8 @@
+# dsh-ielts-examiner bundle layer.
+#
+# Inserted when a DSH web profile lists this package in dsh.profile.bundles.
+# Mounts host + client halves; same shape as dsh-pictor and pomasa-studio.
+
+- insert:
+    - id: dsh-ielts-examiner
+      name: dsh-ielts-examiner
