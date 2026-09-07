@@ -115,6 +115,10 @@ export const STYLE = `
   color: var(--dsw-alias-label-primary); }
 .iw-btn-ghost:hover { background: var(--dsw-alias-bg-layer-2); }
 .iw-btn-tiny { padding: 3px 7px; font-size: 12px; border-radius: 6px; }
+.iw-btn.on { background: var(--dsw-alias-state-business-primary, #4f7cff);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+  border-color: transparent; }
+.iw-btn.on:hover { filter: brightness(.95); }
 
 /* ── 评分条 / 状态点 ──────────────────────────────────────────── */
 .iw-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -197,10 +201,12 @@ export const STYLE = `
 
 /* PDF 导出专用样式：注入到打印 DOM 时使用 */
 .iw-pdf-render { font-size: 14px; line-height: 1.6;
-  color: #1a1a1a; background: #fff; padding: 24px; }
+  color: #1a1a1a; background: #fff; padding: 24px;
+  page-break-after: always; }
 .iw-pdf-render * { color: #1a1a1a !important; background: transparent; }
 .iw-pdf-render h1 { font-size: 22px; margin: 0 0 12px; }
-.iw-pdf-render h2 { font-size: 17px; margin: 16px 0 8px; }
+.iw-pdf-render h2 { font-size: 17px; margin: 16px 0 8px;
+  page-break-after: avoid; }
 .iw-pdf-render h3 { font-size: 15px; margin: 12px 0 6px; }
 .iw-pdf-render p, .iw-pdf-render li { color: #1a1a1a; }
 .iw-pdf-render .iw-md code, .iw-pdf-render .iw-md pre { background: #f5f5f4; color: #1a1a1a; }
@@ -208,5 +214,8 @@ export const STYLE = `
 .iw-pdf-render .iw-md ins { color: #15803d; background: #dcfce7; }
 .iw-pdf-render .iw-md mark { color: #1e3a8a; background: #dbeafe; }
 .iw-pdf-render .iw-pdf-section { margin-bottom: 18px;
-  padding-bottom: 12px; border-bottom: 1px solid #eee; }
+  padding-bottom: 12px; border-bottom: 1px solid #eee;
+  page-break-inside: avoid; break-inside: avoid; }
+.iw-pdf-render .iw-pdf-pagebreak { page-break-before: always; break-before: page;
+  height: 1px; }
 `;

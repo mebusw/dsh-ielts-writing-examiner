@@ -33,23 +33,30 @@ export async function exportNodeToPdf(node, filename) {
   if (!node) throw new Error('exportNodeToPdf: node is null');
   const html2pdf = await loadHtml2Pdf();
   // Wait for any mermaid SVGs to finish rendering before snapshotting.
-  await new Promise((r) => setTimeout(r, 200));
-
-  const opts = {
-    margin: 10,
-    filename: `${filename}.pdf`,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-  };
+  await new Promise((r) => setTimeout(r, 300));
 
   // Wrap in a print-friendly container so pdf output stays readable.
+  // Each top-level child gets its own page-break so content doesn't overlap.
   const wrapper = document.createElement('div');
   wrapper.className = 'iw-pdf-render';
-  wrapper.appendChild(node.cloneNode(true));
-  // Avoid html2canvas CORS taint from data: URIs in <img>: convert to inline canvas.
+  const cloned = node.cloneNode(true);
+  // Wrap each top-level section in .iw-pdf-section for clean page breaks.
+  Array.from(cloned.children).forEach((child) => {
+    child.classList.add('iw-pdf-section');
+  });
+  wrapper.appendChild(cloned);
   wrapper.querySelectorAll('img').forEach((img) => {
     img.setAttribute('crossorigin', 'anonymous');
   });
+
+  const opts = {
+    margin: [12, 10, 12, 10],
+    filename: `${filename}.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 800 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'], avoid: '.iw-pdf-section' },
+  };
+
   await html2pdf().set(opts).from(wrapper).save();
 }
