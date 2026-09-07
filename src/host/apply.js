@@ -68,6 +68,46 @@ function isSafeImageName(name) {
     && /^[A-Za-z0-9._\-一-龥 ()（）]+$/.test(name);
 }
 
+/**
+ * One-shot migration: backfill meta.completedAt for sessions that have
+ * result.json but no completedAt field (older runs from before markDone
+ * stored it). Best-effort — missing result mtime falls back to createdAt.
+ */
+function backfillCompletedAt(store) {
+  try {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const list = store.list();
+    let n = 0;
+    for (const s of list) {
+      if (s.status !== 'done') continue;
+      if (s.completedAt) continue;
+      const dir = path.join(store.paths.dataRoot, 'sessions', s.id);
+      const resultP = path.join(dir, 'result.json');
+      const metaP = path.join(dir, 'meta.json');
+      let ts = s.createdAt || 0;
+      try {
+        const st = fs.statSync(resultP);
+        if (st.mtimeMs > ts) ts = st.mtimeMs;
+      } catch {}
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaP, 'utf8'));
+        meta.completedAt = ts;
+        fs.writeFileSync(metaP, JSON.stringify(meta, null, 2) + '\n');
+        // also patch the in-memory index
+        const idxP = store.paths.INDEX;
+        const idx = JSON.parse(fs.readFileSync(idxP, 'utf8'));
+        const i = idx.findIndex((x) => x.id === s.id);
+        if (i >= 0) { idx[i].completedAt = ts; fs.writeFileSync(idxP, JSON.stringify(idx, null, 2) + '\n'); }
+        n++;
+      } catch {}
+    }
+    if (n > 0) console.log(`[dsh-ielts-examiner] backfilled completedAt on ${n} sessions`);
+  } catch (e) {
+    console.error('[dsh-ielts-examiner] backfill migration failed:', e?.message || e);
+  }
+}
+
 export function apply(ctx, config = {}) {
   try {
     return _applyInner(ctx, config);
@@ -87,6 +127,7 @@ function _applyInner(ctx, config = {}) {
   store.ensure();
   store.seedPrompt({ src: PROMPT_SRC, destName: '雅思写作.compressed.prompt.md' });
   loadBank(PLUGIN_ROOT); // prime cache
+  backfillCompletedAt(store);
 
   // ───────────────────────── RPC router ─────────────────────────
   async function handle(endpoint, payload) {

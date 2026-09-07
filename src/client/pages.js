@@ -63,7 +63,7 @@ export function createPages(React, h, c) {
             }),
       ),
       h('div', { className: 'iw-nav-foot' },
-        h('div', null, `共 ${sorted.length} 次练习`),
+        h('div', null, sessionCountLabel || `共 ${sorted.length} 次练习`),
         h('div', null,
           iwBtn({ ghost: true, tiny: true, className: lang === 'zh' ? 'on' : '', onClick: () => onLang('zh') }, '中'),
           iwBtn({ ghost: true, tiny: true, className: lang === 'en' ? 'on' : '', onClick: () => onLang('en') }, 'EN'),
@@ -322,6 +322,20 @@ export function createPages(React, h, c) {
     const [lang, setLang] = useState('zh');
     const resultRef = useRef(null);
 
+    // i18n strings used at the root level. v1 keeps the surface tiny —
+    // only the empty-state title + tagline change between zh/en. Per-card
+    // strings (titles, buttons) stay Chinese for now since the product is
+    // for Chinese students.
+    const T = {
+      welcomeTitle: lang === 'en' ? 'IELTS Writing Practice' : '欢迎使用 IELTS 写作练习',
+      welcomeBody: lang === 'en'
+        ? 'Click "+ New practice" on the top-left to begin.'
+        : '点左上方 "+ 新练习" 开始你的第一次练习。',
+      newPracticeBtn: lang === 'en' ? '+ New practice' : '+ 新练习',
+      closing: lang === 'en' ? '✕ Close' : '✕ 关闭',
+      sessionCount: lang === 'en' ? `${sorted.length} practices` : `共 ${sorted.length} 次练习`,
+    };
+
     // Debug — remove after diagnostics
     console.info('[iw] Root render view=', view, 'questions=', questions.length, 'selectedQ=', selectedQ);
 
@@ -473,9 +487,9 @@ export function createPages(React, h, c) {
         return h('div', { className: 'iw-main' },
           h('div', { className: 'iw-main-inner' },
             h('div', { className: 'iw-empty' },
-              h('h2', null, '欢迎使用 IELTS 写作练习'),
-              h('p', null, '点左上方 "+ 新练习" 开始你的第一次练习。'),
-              iwBtn({ primary: true, onClick: handleNew }, '+ 新练习'),
+              h('h2', null, T.welcomeTitle),
+              h('p', null, T.welcomeBody),
+              iwBtn({ primary: true, onClick: handleNew }, T.newPracticeBtn),
             )));
       }
       if (view === 'new') {
