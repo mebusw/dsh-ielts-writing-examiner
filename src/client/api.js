@@ -4,10 +4,10 @@
 // The host registers a JSON-RPC handler; we POST {endpoint, payload} and
 // get back {ok, value} (or {ok:false, error}). We unwrap here.
 
-const RPC = '/ielts-examiner';
+const RPC_BASE = '/ielts-examiner';
 
 async function call(endpoint, payload) {
-  const res = await fetch(`${RPC}/rpc`, {
+  const res = await fetch(`${RPC_BASE}/rpc`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ endpoint, payload: payload || {} }),
