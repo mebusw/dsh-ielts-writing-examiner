@@ -1,4 +1,4 @@
-# dsh-ielts-examiner
+# dsh-ielts-writing-examiner
 
 IELTS 写作练习与 AI 评分插件，跑在 DeepSeek Harness (DSH) web profile 里。
 
@@ -9,9 +9,9 @@ IELTS 写作练习与 AI 评分插件，跑在 DeepSeek Harness (DSH) web profil
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add file:~/work/dsh-ielts-examiner
+pnpm add file:~/work/dsh-ielts-writing-examiner
 # 或：
-pnpm link ~/work/dsh-ielts-examiner
+pnpm link ~/work/dsh-ielts-writing-examiner
 ```
 
 启动 `dsh web`，左下角 footer 多一个 **IELTS 写作** 按钮，点开就是工作台。
@@ -30,7 +30,7 @@ pnpm link ~/work/dsh-ielts-examiner
     └── 雅思写作.compressed.prompt.md   # 首次启动时从 bundle 拷过来
 ```
 
-题库（`雅思真题.json`）与 Task 1 配图（`images-for-task1/`）打包进 npm，运行时直接读 bundle，零拷贝。
+
 
 ## 模型
 
@@ -52,6 +52,3 @@ pnpm build         # 产出 lib/index.js + lib/client.js
 pnpm verify        # 离线 smoke（不调 LLM）
 ```
 
-## 设计
-
-参考 `pomasa-studio` 与 `dsh-pictor` 两份实现。完整迁移背景见 `06-ielts-vuetify/migration-guide.md`。
