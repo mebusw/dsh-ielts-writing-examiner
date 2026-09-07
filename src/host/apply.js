@@ -107,7 +107,13 @@ function _applyInner(ctx, config = {}) {
         }));
       }
       case 'session.list': {
-        return store.list();
+        // Augment with scoredAt (alias of completedAt) and overallBand for
+        // the sidebar UI; everything else the client can pull via session.get.
+        return store.list().map((s) => ({
+          ...s,
+          overallBand: s.overallBand,
+          scoredAt: s.completedAt || null,
+        }));
       }
       case 'session.create': {
         const { questionId } = payload || {};
