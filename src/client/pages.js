@@ -143,13 +143,13 @@ export function createPages(React, h, c) {
     const bodyRef = useRef(null);
 
     useEffect(() => {
-      // After mount, measure scrollHeight and decide whether to show toggle.
-      // Default = expanded per migration-guide §5 视图 A.
       if (bodyRef.current) {
         const h = bodyRef.current.scrollHeight;
         setOverThreshold(h > 350);
       }
     }, [q.id]);
+
+    const imgList = Array.isArray(q.images) ? q.images : [];
 
     return h('div', null,
       h('div', {
@@ -163,6 +163,15 @@ export function createPages(React, h, c) {
         q.date || q.type ? h('p', { style: { color: 'var(--dsw-alias-label-caption)', fontSize: 13 } },
           [q.date, q.type, q.tags?.length ? `#${q.tags.join(' #')}` : ''].filter(Boolean).join(' · ')) : null,
         h('div', { dangerouslySetInnerHTML: { __html: renderMarkdown(q.body || '') } }),
+        imgList.length > 0
+          ? h('div', { style: { marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 } },
+              imgList.map((src, i) => h('img', {
+                key: i,
+                src: src.startsWith('http') || src.startsWith('/') ? src : `/ielts-examiner/asset/${src}`,
+                alt: q.title,
+                style: { maxWidth: '100%', height: 'auto', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)' },
+              })))
+          : null,
       ),
       overThreshold
         ? iwBtn({ ghost: true, tiny: true, onClick: () => setCollapsed(!collapsed) },

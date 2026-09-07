@@ -37,9 +37,25 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;');
 }
 
+// Resolve relative image path against ASSET_BASE. Asset paths from the
+// question bank look like "images-for-task1/foo.png" — we prepend the
+// host's asset route so the browser can fetch them.
+const ASSET_BASE = (typeof window !== 'undefined')
+  ? (window.__iw_exports__?.ASSET_BASE || '/ielts-examiner/asset')
+  : '/ielts-examiner/asset';
+
+function resolveImgSrc(url) {
+  if (!url) return '';
+  if (/^(https?:|data:|\/)/.test(url)) return url;
+  return `${ASSET_BASE}/${url}`;
+}
+
 // Inline pass: escape first, then re-introduce a small whitelist of tags.
 function renderInline(text) {
   let s = escapeHtml(text);
+  // Images: ![alt](url) — alt may be empty
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) =>
+    `<img src="${resolveImgSrc(url)}" alt="${alt}" style="max-width:100%;height:auto;border-radius:6px;margin:8px 0;display:block;" />`);
   s = s.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
