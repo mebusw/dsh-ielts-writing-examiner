@@ -40,14 +40,14 @@ function escapeHtml(s) {
 // Resolve relative image path against ASSET_BASE. Asset paths from the
 // question bank look like "images-for-task1/foo.png" — we prepend the
 // host's asset route so the browser can fetch them.
-const ASSET_BASE = (typeof window !== 'undefined')
+const MD_ASSET_BASE = (typeof window !== 'undefined')
   ? (window.__iw_exports__?.ASSET_BASE || '/ielts-examiner/asset')
   : '/ielts-examiner/asset';
 
 function resolveImgSrc(url) {
   if (!url) return '';
   if (/^(https?:|data:|\/)/.test(url)) return url;
-  return `${ASSET_BASE}/${url}`;
+  return `${MD_ASSET_BASE}/${url}`;
 }
 
 // Inline pass: escape first, then re-introduce a small whitelist of tags.
