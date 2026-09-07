@@ -97,6 +97,11 @@ function safeParseJson(text) {
 export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot, deps = {} }) {
   const session = store.get(sessionId);
   if (!session) throw new Error(`scoreEssay: no such session ${sessionId}`);
+  // Idempotent: if we already scored this session, no-op.
+  if (session.result) {
+    logInfo('scoreEssay', `session=${sessionId} already scored band=${session.result?.correction?.overallBand}, skipping`);
+    return session.result;
+  }
   const question = findById(pluginRoot, session.questionId);
   if (!question) throw new Error(`scoreEssay: question ${session.questionId} not found in bank`);
 

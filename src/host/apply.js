@@ -136,10 +136,12 @@ function _applyInner(ctx, config = {}) {
         if (!id) throw new Error('session.score: id required');
         const s = store.get(id);
         if (!s) throw new Error(`session.score: no such session ${id}`);
-        if (s.status === 'running') return { ok: true, status: 'running', alreadyRunning: true };
-        console.log(`[dsh-ielts-examiner] session.score fired id=${id} deps.agentDefaultModel=${!!ctx.agentDefaultModel} deps.credentials=${!!ctx.credentials}`);
+        // No early-return on 'running' — stageOf reports 'running' as soon as
+        // essay.txt exists (not "score in flight"). scoreEssay itself checks
+        // for result.json and is idempotent. Always invoke so the LLM call
+        // actually runs.
+        console.log(`[dsh-ielts-examiner] session.score fired id=${id} status=${s.status} deps.agentDefaultModel=${!!ctx.agentDefaultModel} deps.credentials=${!!ctx.credentials}`);
         store.markRunning(id);
-        // Fire-and-forget LLM call; populates result.json on completion.
         const deps = {
           agentDefaultModel: ctx.agentDefaultModel || ctx.get?.('agentDefaultModel'),
           credentials: ctx.credentials || ctx.get?.('credentials'),
