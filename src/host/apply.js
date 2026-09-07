@@ -75,13 +75,12 @@ function isSafeImageName(name) {
  */
 function backfillCompletedAt(store) {
   try {
-    const path = require('node:path');
     const list = store.list();
     let n = 0;
     for (const s of list) {
       if (s.status !== 'done') continue;
       if (s.completedAt) continue;
-      const dir = path.join(store.paths.dataRoot, 'sessions', s.id);
+      const dir = join(store.paths.dataRoot, 'sessions', s.id);
       const resultP = path.join(dir, 'result.json');
       const metaP = path.join(dir, 'meta.json');
       let ts = s.createdAt || 0;

@@ -31,7 +31,7 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // Nav — 264px left column. Auto-refresh every 3s.
   // ────────────────────────────────────────────────────────────────
-  function Nav({ sessions, activeId, onSelect, onNew, onClone, onDelete, onLang, lang }) {
+  function Nav({ sessions, activeId, onSelect, onNew, onClone, onDelete, onLang, lang, sessionCountLabel }) {
     const list = Array.isArray(sessions) ? sessions : [];
     const sorted = list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return h('aside', { className: 'iw-nav' },
