@@ -100,6 +100,10 @@ function _applyInner(ctx, config = {}) {
           type: i.type,
           date: i.date,
           topic: i.title,
+          body: i.body,
+          images: i.images,
+          region: i.region,
+          tags: i.tags,
         }));
       }
       case 'session.list': {
