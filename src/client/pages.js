@@ -79,6 +79,14 @@ export function createPages(React, h, c) {
     const qArr = Array.isArray(questions) ? questions : [];
     const q = qArr.find((x) => x && x.id === selectedId);
     const wc = wordCount(essay);
+
+    // Truncate body to first ~50 chars for the dropdown label, so users can
+    // see which question they're picking without needing to expand each one.
+    function optionLabel(x) {
+      const head = (x.body || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      return head ? `${x.title} — ${head}${x.body.length > 60 ? '…' : ''}` : x.title;
+    }
+
     return h('div', { className: 'iw-main' },
       h('div', { className: 'iw-main-inner' },
         error ? h('div', { className: 'iw-error' }, error) : null,
@@ -92,16 +100,19 @@ export function createPages(React, h, c) {
               options: [
                 { value: 'g1', label: '── Task 1 ──', disabled: true },
                 ...qArr.filter((x) => x.task === '1').map((x) => ({
-                  value: x.id, label: `${x.title}（${x.type}）`,
+                  value: x.id, label: `【${x.type}】${optionLabel(x)}`,
                 })),
                 { value: 'g2', label: '── Task 2 ──', disabled: true },
                 ...qArr.filter((x) => x.task === '2').map((x) => ({
-                  value: x.id, label: `${x.title}`,
+                  value: x.id, label: optionLabel(x),
                 })),
               ],
             }),
           ),
-          q ? h(QuestionPreview, { q }) : null,
+          q ? h(QuestionPreview, { q }) : h('div', {
+            className: 'iw-md',
+            style: { color: 'var(--dsw-alias-label-caption)', fontSize: 13, padding: '8px 0' },
+          }, '从下拉里选一题，下面会显示题干和图片。'),
         ),
         // 2. 写作
         iwCard({ title: '2. 写作' },
@@ -301,6 +312,9 @@ export function createPages(React, h, c) {
     const [saving, setSaving] = useState(false);
     const [lang, setLang] = useState('zh');
     const resultRef = useRef(null);
+
+    // Debug — remove after diagnostics
+    console.info('[iw] Root render view=', view, 'questions=', questions.length, 'selectedQ=', selectedQ);
 
     const refreshSessions = useCallback(async () => {
       try {
