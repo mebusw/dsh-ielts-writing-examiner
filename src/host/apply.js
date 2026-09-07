@@ -19,7 +19,7 @@
 // v1 deliberately omits config.get/set/test (no LLM channel config in plugin —
 // DSH runtime decides) and session.exportPdf (PDF is pure client-side html2pdf.js).
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,7 +75,6 @@ function isSafeImageName(name) {
  */
 function backfillCompletedAt(store) {
   try {
-    const fs = require('node:fs');
     const path = require('node:path');
     const list = store.list();
     let n = 0;
@@ -87,18 +86,17 @@ function backfillCompletedAt(store) {
       const metaP = path.join(dir, 'meta.json');
       let ts = s.createdAt || 0;
       try {
-        const st = fs.statSync(resultP);
+        const st = statSync(resultP);
         if (st.mtimeMs > ts) ts = st.mtimeMs;
       } catch {}
       try {
-        const meta = JSON.parse(fs.readFileSync(metaP, 'utf8'));
+        const meta = JSON.parse(readFileSync(metaP, 'utf8'));
         meta.completedAt = ts;
-        fs.writeFileSync(metaP, JSON.stringify(meta, null, 2) + '\n');
-        // also patch the in-memory index
+        writeFileSync(metaP, JSON.stringify(meta, null, 2) + '\n');
         const idxP = store.paths.INDEX;
-        const idx = JSON.parse(fs.readFileSync(idxP, 'utf8'));
+        const idx = JSON.parse(readFileSync(idxP, 'utf8'));
         const i = idx.findIndex((x) => x.id === s.id);
-        if (i >= 0) { idx[i].completedAt = ts; fs.writeFileSync(idxP, JSON.stringify(idx, null, 2) + '\n'); }
+        if (i >= 0) { idx[i].completedAt = ts; writeFileSync(idxP, JSON.stringify(idx, null, 2) + '\n'); }
         n++;
       } catch {}
     }

@@ -326,6 +326,7 @@ export function createPages(React, h, c) {
     // only the empty-state title + tagline change between zh/en. Per-card
     // strings (titles, buttons) stay Chinese for now since the product is
     // for Chinese students.
+    const sArr = Array.isArray(sessions) ? sessions : [];
     const T = {
       welcomeTitle: lang === 'en' ? 'IELTS Writing Practice' : '欢迎使用 IELTS 写作练习',
       welcomeBody: lang === 'en'
@@ -333,7 +334,7 @@ export function createPages(React, h, c) {
         : '点左上方 "+ 新练习" 开始你的第一次练习。',
       newPracticeBtn: lang === 'en' ? '+ New practice' : '+ 新练习',
       closing: lang === 'en' ? '✕ Close' : '✕ 关闭',
-      sessionCount: lang === 'en' ? `${sorted.length} practices` : `共 ${sorted.length} 次练习`,
+      sessionCount: lang === 'en' ? `${sArr.length} practices` : `共 ${sArr.length} 次练习`,
     };
 
     // Debug — remove after diagnostics
