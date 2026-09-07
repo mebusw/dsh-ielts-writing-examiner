@@ -25,24 +25,38 @@ function logError(scope, e) {
   console.error(`[dsh-ielts-examiner] ${scope}:`, e?.stack || e);
 }
 
-async function streamChatJson({ baseUrl, apiKey, model, prompt, signal }) {
+async function streamChatJson({ baseUrl, apiKey, model, prompt, signal, timeoutMs = 300_000 }) {
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      stream: true,
-      response_format: { type: 'json_object' },
-      temperature: 0.4,
-    }),
-    signal,
-  });
+  // Combine caller's signal with a hard timeout so a hung fetch can't
+  // strand the session in 'running' forever.
+  const timeoutAc = new AbortController();
+  const timer = setTimeout(() => timeoutAc.abort(new Error('LLM fetch timeout')), timeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutAc.signal])
+    : timeoutAc.signal;
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: true,
+        response_format: { type: 'json_object' },
+        temperature: 0.4,
+      }),
+      signal: combinedSignal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+  clearTimeout(timer);
   if (!resp.ok || !resp.body) {
     const text = await resp.text().catch(() => '');
     throw new Error(`LLM HTTP ${resp.status}: ${text.slice(0, 300)}`);
@@ -103,15 +117,21 @@ export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot, deps 
     assetBase,
   });
 
-  logInfo('scoreEssay', `session=${sessionId} provider=${m.provider} model=${m.model} essayLen=${session.essay.length}`);
+  logInfo('scoreEssay', `session=${sessionId} provider=${m.provider} model=${m.model} baseUrl=${m.baseUrl} essayLen=${session.essay.length}`);
   const ac = new AbortController();
-  const raw = await streamChatJson({
-    baseUrl: m.baseUrl,
-    apiKey: m.apiKey,
-    model: m.model,
-    prompt,
-    signal: ac.signal,
-  });
+  let raw;
+  try {
+    raw = await streamChatJson({
+      baseUrl: m.baseUrl,
+      apiKey: m.apiKey,
+      model: m.model,
+      prompt,
+      signal: ac.signal,
+    });
+  } catch (e) {
+    logError('scoreEssay.fetch', e);
+    throw e;
+  }
   const parsed = safeParseJson(raw);
   const check = validateScoreResult(parsed);
   if (!check.ok) {
