@@ -193,6 +193,28 @@ function _applyInner(ctx, config = {}) {
   // ───────────────────────── asset routes ─────────────────────────
   const ws = ctx.webServer || ctx.get?.('webServer');
   if (ws && typeof ws.register === 'function') {
+    // /ielts-examiner/rpc — POST {endpoint, payload} → {ok, value} or {ok:false, error}.
+    // Direct HTTP path (no DSH client-modules required). Mirrors pomasa's
+    // /pomasa/* routes and the pictor /pictor/* static asset endpoint.
+    ws.register({
+      kind: 'exact',
+      path: '/ielts-examiner/rpc',
+      handler: async (req, res) => {
+        try {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+          const value = await handle(body.endpoint, body.payload || {});
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, value }));
+        } catch (e) {
+          logError(`rpc:${req?.url}`, e);
+          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, error: { code: 'internal', message: String(e?.message || e) } }));
+        }
+      },
+    });
+
     const IMG_CACHE = { 'cache-control': 'public, max-age=3600' };
 
     // /ielts-examiner/asset/images-for-task1/<safe-filename>

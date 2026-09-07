@@ -1,37 +1,37 @@
-// RPC fetch wrappers. Talks to host's /ielts-examiner router via the
-// connection.rpc bridge exposed by DSH runtime. Falls back to direct fetch
-// (same path) for environments where the wrapper isn't injected.
+// RPC client — direct fetch wrapper over the host /ielts-examiner endpoints.
+//
+// Mirrors pomasa-studio/src/client/api.js (no DSH client modules needed).
+// The host registers a JSON-RPC handler; we POST {endpoint, payload} and
+// get back {ok, value} (or {ok:false, error}). We unwrap here.
 
-const RPC_PATH = '/ielts-examiner';
+const RPC = '/ielts-examiner';
 
-async function call(connection, endpoint, payload = {}) {
-  if (connection && connection.rpc && typeof connection.rpc.call === 'function') {
-    return connection.rpc.call(RPC_PATH, endpoint, payload);
-  }
-  // Direct fetch fallback — same JSON-RPC contract.
-  const resp = await fetch(`${RPC_PATH}/rpc`, {
+async function call(endpoint, payload) {
+  const res = await fetch(`${RPC}/rpc`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ endpoint, payload }),
+    body: JSON.stringify({ endpoint, payload: payload || {} }),
   });
-  if (!resp.ok) throw new Error(`rpc ${endpoint}: HTTP ${resp.status}`);
-  const data = await resp.json();
+  if (!res.ok) {
+    throw new Error(`rpc ${endpoint}: HTTP ${res.status}`);
+  }
+  const data = await res.json();
   if (data && data.ok === false) {
     throw new Error(data.error?.message || `rpc ${endpoint} failed`);
   }
   return data?.value;
 }
 
-export function createApi(connection) {
+export function createApi(_connection) {
   return {
-    listQuestions: () => call(connection, 'questionBank.list'),
-    listSessions: () => call(connection, 'session.list'),
-    createSession: (questionId) => call(connection, 'session.create', { questionId }),
-    getSession: (id) => call(connection, 'session.get', { id }),
-    updateEssay: (id, essay) => call(connection, 'session.updateEssay', { id, essay }),
-    score: (id) => call(connection, 'session.score', { id }),
-    pulse: (id) => call(connection, 'session.pulse', { id }),
-    clone: (id) => call(connection, 'session.clone', { id }),
-    delete: (id) => call(connection, 'session.delete', { id }),
+    listQuestions: () => call('questionBank.list'),
+    listSessions: () => call('session.list'),
+    createSession: (questionId) => call('session.create', { questionId }),
+    getSession: (id) => call('session.get', { id }),
+    updateEssay: (id, essay) => call('session.updateEssay', { id, essay }),
+    score: (id) => call('session.score', { id }),
+    pulse: (id) => call('session.pulse', { id }),
+    clone: (id) => call('session.clone', { id }),
+    delete: (id) => call('session.delete', { id }),
   };
 }
