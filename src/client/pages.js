@@ -426,7 +426,6 @@ export function createPages(React, h, c) {
 
     async function handleScore() {
       if (!selectedQ) { setError('请先选择一道题'); return; }
-      if (wordCount(essay) < 50) { setError('作文至少 50 词'); return; }
       setError(null);
       try {
         let id = activeId;
