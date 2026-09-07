@@ -107,18 +107,18 @@ export function createPages(React, h, c) {
         iwCard({ title: '2. 写作' },
           iwField({
             label: '把你的作文写在这里',
-            counter: `${wc} 词${wc < 50 ? '（至少 50 词）' : ''}`,
+            counter: `${wc} 词`,
           },
             iwTextarea({
               value: essay,
               onChange: onEssayChange,
-              placeholder: 'Write at least 150 words for Task 1, or 250 for Task 2.',
+              placeholder: '把你的作文写在这里…',
               rows: 14,
             }),
           ),
           iwBtn({
             primary: true,
-            disabled: !selectedId || wc < 50 || saving,
+            disabled: !selectedId || saving,
             onClick: onScore,
           }, saving ? '保存中…' : '提交评分'),
         ),
