@@ -35,7 +35,6 @@ function apply(ctx) {
   const React = require('react');
   const h = React.createElement;
   const { useState, useEffect } = React;
-  // build: 0.1.2 — direct fetch API path
 
   // Inject stylesheet once per page load.
   if (typeof document !== 'undefined' && !document.getElementById('iw-styles')) {
