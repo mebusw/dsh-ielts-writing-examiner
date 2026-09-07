@@ -137,6 +137,7 @@ function _applyInner(ctx, config = {}) {
         const s = store.get(id);
         if (!s) throw new Error(`session.score: no such session ${id}`);
         if (s.status === 'running') return { ok: true, status: 'running', alreadyRunning: true };
+        console.log(`[dsh-ielts-examiner] session.score fired id=${id} deps.agentDefaultModel=${!!ctx.agentDefaultModel} deps.credentials=${!!ctx.credentials}`);
         store.markRunning(id);
         // Fire-and-forget LLM call; populates result.json on completion.
         const deps = {
@@ -145,7 +146,9 @@ function _applyInner(ctx, config = {}) {
         };
         const { scoreEssay } = await import('./llm.js');
         scoreEssay({ store, sessionId: id, dataRoot, pluginRoot: PLUGIN_ROOT, deps })
+          .then(() => console.log(`[dsh-ielts-examiner] scoreEssay resolved for ${id}`))
           .catch((e) => {
+            console.error(`[dsh-ielts-examiner] scoreEssay REJECTED for ${id}:`, e?.message || e);
             logError('scoreEssay', e);
             try { store.markFailed(id, e?.message || String(e)); } catch {}
           });
