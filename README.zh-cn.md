@@ -16,10 +16,6 @@ API key UI —— 模型配置在 host 那边改。
 `pnpm add` 在 profile 目录下执行一遍。
 
 ```bash
-# 切到 web profile
-dsh plugin --profile web add file:/absolute/path/to/dsh-ielts-writing-examiner
-
-# 或者发布到 registry 之后：
 dsh plugin --profile web add dsh-ielts-writing-examiner
 ```
 

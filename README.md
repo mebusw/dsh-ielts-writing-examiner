@@ -18,10 +18,6 @@ The plugin installs into a DSH profile via `dsh plugin add`, which is a
 thin wrapper around `pnpm add` in the profile's directory.
 
 ```bash
-# from the web profile
-dsh plugin --profile web add file:/absolute/path/to/dsh-ielts-writing-examiner
-
-# or, if you publish to a registry later:
 dsh plugin --profile web add dsh-ielts-writing-examiner
 ```
 
