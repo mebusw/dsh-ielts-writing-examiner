@@ -106,11 +106,14 @@ const { id: sid } = await rpc.call('/ielts-examiner', 'session.create', { questi
 truthy('session.create returns id', typeof sid === 'string' && sid.length === 12);
 
 const list1 = await rpc.call('/ielts-examiner', 'session.list');
-truthy('session.list includes new session', list1.some((s) => s.id === sid));
+const listRow = list1.find((s) => s.id === sid);
+truthy('session.list includes new session', !!listRow);
+eq('list row carries task', listRow?.task, firstQ.task);
 
 const got = await rpc.call('/ielts-examiner', 'session.get', { id: sid });
 eq('get().questionId', got.questionId, firstQ.id);
 eq('get().status', got.status, 'idle');
+eq('get().task', got.task, firstQ.task);
 
 const essay = 'Some practice essay about graphs and trends in modern cities. ' +
   'It should be at least fifty words long to pass the minimum length check. ' +
@@ -124,6 +127,7 @@ const { id: sid2 } = await rpc.call('/ielts-examiner', 'session.clone', { id: si
 truthy('clone has different id', sid2 !== sid);
 const got2 = await rpc.call('/ielts-examiner', 'session.get', { id: sid2 });
 eq('clone copies questionId', got2.questionId, firstQ.id);
+eq('clone copies task', got2.task, firstQ.task);
 truthy('clone carries over essay', got2.essay.length > 50);
 
 // 4. session.pulse (no result.json yet)

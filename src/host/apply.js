@@ -105,6 +105,39 @@ function backfillCompletedAt(store) {
   }
 }
 
+/**
+ * One-shot migration: backfill meta.task for sessions that pre-date the
+ * task field. Looks up the question bank by questionId and copies task
+ * ('1' or '2') into both meta.json and index.json. Skips sessions whose
+ * questionId no longer resolves (e.g., bank was edited).
+ */
+function backfillTask(store, pluginRoot) {
+  try {
+    const list = store.list();
+    let n = 0;
+    for (const s of list) {
+      if (s.task) continue;
+      const q = findById(pluginRoot, s.questionId);
+      if (!q || !q.task) continue;
+      const dir = join(store.paths.dataRoot, 'sessions', s.id);
+      const metaP = join(dir, 'meta.json');
+      try {
+        const meta = JSON.parse(readFileSync(metaP, 'utf8'));
+        meta.task = q.task;
+        writeFileSync(metaP, JSON.stringify(meta, null, 2) + '\n');
+        const idxP = store.paths.INDEX;
+        const idx = JSON.parse(readFileSync(idxP, 'utf8'));
+        const i = idx.findIndex((x) => x.id === s.id);
+        if (i >= 0) { idx[i].task = q.task; writeFileSync(idxP, JSON.stringify(idx, null, 2) + '\n'); }
+        n++;
+      } catch {}
+    }
+    if (n > 0) console.log(`[dsh-ielts-examiner] backfilled task on ${n} sessions`);
+  } catch (e) {
+    console.error('[dsh-ielts-examiner] backfill task migration failed:', e?.message || e);
+  }
+}
+
 export function apply(ctx, config = {}) {
   try {
     return _applyInner(ctx, config);
@@ -125,6 +158,7 @@ function _applyInner(ctx, config = {}) {
   store.seedPrompt({ src: PROMPT_SRC, destName: '雅思写作.compressed.prompt.md' });
   loadBank(PLUGIN_ROOT); // prime cache
   backfillCompletedAt(store);
+  backfillTask(store, PLUGIN_ROOT);
 
   // ───────────────────────── RPC router ─────────────────────────
   async function handle(endpoint, payload) {
@@ -158,7 +192,7 @@ function _applyInner(ctx, config = {}) {
         if (!questionId) throw new Error('session.create: questionId required');
         const q = findById(PLUGIN_ROOT, questionId);
         if (!q) throw new Error(`session.create: unknown questionId ${questionId}`);
-        const meta = store.create({ questionId, questionTitle: q.title });
+        const meta = store.create({ questionId, questionTitle: q.title, task: q.task });
         return { id: meta.id };
       }
       case 'session.get': {
@@ -213,6 +247,7 @@ function _applyInner(ctx, config = {}) {
         const meta = store.create({
           questionId: src.questionId,
           questionTitle: src.questionTitle,
+          task: src.task,
         });
         // Reuse the original essay as starting draft.
         if (src.essay) store.updateEssay(meta.id, src.essay);

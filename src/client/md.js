@@ -14,15 +14,29 @@ function loadMermaid() {
   mermaidReady = new Promise((resolve, reject) => {
     if (typeof window === 'undefined') { resolve(null); return; }
     if (window.mermaid) { resolve(window.mermaid); return; }
+    // UMD bundle via classic <script>: more robust than the inline ESM
+    // dynamic-import dance we had before (some browsers silently swallow
+    // module import failures inside inline blob scripts).
     const s = document.createElement('script');
-    s.type = 'module';
-    s.textContent = `
-import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', fontFamily: 'inherit' });
-window.mermaid = mermaid;
-window.dispatchEvent(new Event('iw-mermaid-ready'));
-`;
-    window.addEventListener('iw-mermaid-ready', () => resolve(window.mermaid), { once: true });
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+    s.async = true;
+    s.onload = () => {
+      if (!window.mermaid) {
+        reject(new Error('mermaid loaded but window.mermaid missing'));
+        return;
+      }
+      try {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          theme: 'default',
+          securityLevel: 'loose',
+          fontFamily: 'inherit',
+        });
+        resolve(window.mermaid);
+      } catch (e) {
+        reject(new Error('mermaid initialize failed: ' + (e?.message || e)));
+      }
+    };
     s.onerror = () => reject(new Error('mermaid CDN load failed'));
     document.head.appendChild(s);
   });

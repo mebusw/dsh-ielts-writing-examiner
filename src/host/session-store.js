@@ -120,7 +120,7 @@ export function createSessionStore(dataRoot) {
   }
 
   /** Create a new session bound to a question. */
-  function create({ questionId, questionTitle }) {
+  function create({ questionId, questionTitle, task }) {
     ensure();
     const id = newId();
     const dir = ensureSession(id);
@@ -128,6 +128,7 @@ export function createSessionStore(dataRoot) {
       id,
       questionId,
       questionTitle: questionTitle || questionId,
+      task: task || '',  // '1' (Task 1 / 小作文) | '2' (Task 2 / 大作文) | ''
       createdAt: Date.now(),
       status: 'idle',
       wordCount: 0,

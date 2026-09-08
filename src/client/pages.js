@@ -6,7 +6,7 @@
 // names must resolve to the React instance from the ModuleLoader's require('react')).
 
 import { renderMarkdown, renderMermaidIn } from './md.js';
-import { exportNodeToPdf } from './export-pdf.js';
+// import { exportNodeToPdf } from './export-pdf.js';  // 暂时隐藏，恢复时打开
 
 export function createPages(React, h, c) {
   const { useState, useEffect, useRef, useCallback } = React;
@@ -28,6 +28,24 @@ export function createPages(React, h, c) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 
+  // Sidebar subtitle for a session row: task · (score) · time.
+  // - task type always shows for any session (small / big essay)
+  // - score only when status === 'done' and overallBand is set
+  // - time is completedAt when available, else createdAt
+  function navSubtitle(s) {
+    if (!s) return '';
+    const parts = [];
+    if (s.task === '1') parts.push('小作');
+    else if (s.task === '2') parts.push('大作');
+    else if (s.questionId) parts.push('题目');
+    if (s.status === 'done' && typeof s.overallBand === 'number') {
+      parts.push(s.overallBand.toFixed(1));
+    }
+    const ts = s.completedAt || s.createdAt;
+    if (ts) parts.push(timeAgo(ts));
+    return parts.join(' · ');
+  }
+
   // ────────────────────────────────────────────────────────────────
   // Nav — 264px left column. Auto-refresh every 3s.
   // ────────────────────────────────────────────────────────────────
@@ -47,17 +65,21 @@ export function createPages(React, h, c) {
           ? h('div', { className: 'iw-nav-meta', style: { padding: '20px 10px', textAlign: 'center' } }, '暂无练习')
           : sorted.map((s) => {
               const on = s.id === activeId;
+              const sub = navSubtitle(s);
               return h('div', {
                 key: s.id, className: 'iw-nav-row' + (on ? ' on' : ''), onClick: () => onSelect(s.id),
               },
                 iwDot({ status: s.status }),
-                h('div', { className: 'iw-nav-top' },
-                  h('div', { className: 'iw-nav-name', title: s.questionTitle }, s.questionTitle),
-                  h('div', { className: 'iw-nav-actions' },
-                    (s.status === 'done' || s.status === 'failed') &&
-                      iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onClone(s.id); }, title: '用同一题再来一次' }, '↻'),
-                    iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onDelete(s.id); }, title: '删除这次练习' }, '✕'),
+                h('div', { className: 'iw-nav-body' },
+                  h('div', { className: 'iw-nav-top' },
+                    h('div', { className: 'iw-nav-name', title: s.questionTitle }, s.questionTitle),
+                    h('div', { className: 'iw-nav-actions' },
+                      (s.status === 'done' || s.status === 'failed') &&
+                        iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onClone(s.id); }, title: '用同一题再来一次' }, '↻'),
+                      iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onDelete(s.id); }, title: '删除这次练习' }, '✕'),
+                    ),
                   ),
+                  sub ? h('div', { className: 'iw-nav-sub' }, sub) : null,
                 ),
               );
             }),
@@ -195,7 +217,7 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // Result — View C (default when active session.status === 'done').
   // ────────────────────────────────────────────────────────────────
-  function Result({ session, onAgain, api, sessionId, rootRef }) {
+  function Result({ session, question, onAgain, api, sessionId, rootRef }) {
     const r = session.result || {};
     const c = r.correction || {};
     const a = r.analysis || {};
@@ -205,15 +227,16 @@ export function createPages(React, h, c) {
       { key: 'lexicalResource', label: 'Lexical Resource' },
       { key: 'grammaticalRange', label: 'Grammatical Range' },
     ];
-    const handleExport = async () => {
-      if (!rootRef?.current) return;
-      try {
-        const date = new Date().toISOString().slice(0, 10);
-        await exportNodeToPdf(rootRef.current, `ielts-${session.questionId || session.id}-${date}`);
-      } catch (e) {
-        alert('导出 PDF 失败：' + (e?.message || e));
-      }
-    };
+    // PDF 导出暂时隐藏（用户反馈）。代码保留在 export-pdf.js，要恢复时
+    // 把下面这段打开即可：
+    //   const handleExport = async () => {
+    //     if (!rootRef?.current) return;
+    //     try {
+    //       const q = question ? { ...question, _bodyHtml: renderMarkdown(question.body || '') } : null;
+    //       const date = new Date().toISOString().slice(0, 10);
+    //       await exportNodeToPdf(rootRef.current, { session, question: q }, `ielts-${session.questionId || session.id}-${date}`);
+    //     } catch (e) { alert('导出 PDF 失败：' + (e?.message || e)); }
+    //   };
 
     // After mount, render mermaid diagrams embedded in analysis.
     useEffect(() => {
@@ -225,7 +248,6 @@ export function createPages(React, h, c) {
         h('div', { className: 'iw-infobar' },
           h('h2', null, session.questionTitle || '(untitled)'),
           iwBadge({ band: c.overallBand }),
-          iwBtn({ ghost: true, onClick: handleExport }, '导出 PDF'),
           iwBtn({ primary: true, onClick: onAgain }, '再来一次'),
         ),
         // 4 strip cards
@@ -238,6 +260,25 @@ export function createPages(React, h, c) {
             );
           }),
         ),
+        // 题目卡：在思路解析上方，回看时不用滚回顶部也能看到原题。
+        question ? iwCard({ title: '题目' },
+          (question.task || question.type || question.date)
+            ? h('p', { className: 'iw-pdf-meta' },
+                [question.task ? `Task ${question.task}` : '', question.type, question.date]
+                  .filter(Boolean).join(' · '))
+            : null,
+          h('div', { className: 'iw-md', dangerouslySetInnerHTML: {
+            __html: renderMarkdown(question.body || ''),
+          } }),
+          Array.isArray(question.images) && question.images.length > 0
+            ? h('div', { className: 'iw-question-images' },
+                question.images.map((src, i) => h('img', {
+                  key: i,
+                  src: src.startsWith('http') || src.startsWith('/') ? src : `/ielts-examiner/asset/${src}`,
+                  alt: question.title || '',
+                })))
+            : null,
+        ) : null,
         // 思路解析
         iwCard({ title: '思路解析' },
           h('div', { className: 'iw-md', dangerouslySetInnerHTML: {
@@ -258,16 +299,27 @@ export function createPages(React, h, c) {
             h('summary', { style: { cursor: 'pointer', fontWeight: 600, marginTop: 8 } },
               `语法批改（${c.grammarFixes.length} 条）`),
             h('ul', { style: { marginTop: 8 } },
-              c.grammarFixes.map((g, i) =>
-                h('li', { key: i }, `<u>${g.phrase}</u> → ${g.suggestion} — ${g.reason}`)),
+              // 用 React 元素 <strong> 渲染高亮；之前用字符串模板
+              // "<u>${g.phrase}</u>" 被 React 当文本节点，<u> 被转义掉。
+              c.grammarFixes.map((g, i) => h('li', { key: i },
+                h('strong', null, g.phrase),
+                ' → ',
+                g.suggestion,
+                ' — ',
+                g.reason,
+              )),
             ),
           ) : null,
           c.vocabularyDiversity?.length ? h('details', null,
             h('summary', { style: { cursor: 'pointer', fontWeight: 600, marginTop: 8 } },
               `用词多样性（${c.vocabularyDiversity.length} 条）`),
             h('ul', { style: { marginTop: 8 } },
-              c.vocabularyDiversity.map((v, i) =>
-                h('li', { key: i }, `${v.phrase} — ${v.comment}${v.alternatives?.length ? `（替代：${v.alternatives.join(' / ')}）` : ''}`)),
+              c.vocabularyDiversity.map((v, i) => h('li', { key: i },
+                h('strong', null, v.phrase),
+                ' — ',
+                v.comment,
+                v.alternatives?.length ? `（替代：${v.alternatives.join(' / ')}）` : null,
+              )),
             ),
           ) : null,
         ),
@@ -286,7 +338,7 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // SessionDetail — View D (inline summary at top of right pane).
   // ────────────────────────────────────────────────────────────────
-  function SessionDetail({ session, onJumpToFull }) {
+  function SessionDetail({ session }) {
     const c = session.result?.correction || {};
     return h('div', { className: 'iw-summary' },
       h('div', { className: 'iw-summary-meta' },
@@ -513,10 +565,11 @@ export function createPages(React, h, c) {
       }
       // detail or result: render Result with optional SessionDetail on top
       if (active && active.status === 'done') {
+        const question = questions.find((q) => q.id === active.questionId) || null;
         return h('div', { ref: resultRef, className: 'iw-main' },
           h('div', { className: 'iw-main-inner' },
             h(SessionDetail, { session: active }),
-            h(Result, { session: active, onAgain: handleNew, api, sessionId: activeId, rootRef: resultRef }),
+            h(Result, { session: active, question, onAgain: handleNew, api, sessionId: activeId, rootRef: resultRef }),
           ));
       }
       if (active) {
