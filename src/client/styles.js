@@ -51,13 +51,17 @@ export const STYLE = `
 .iw-nav-sub { font-size: 13px; color: var(--dsw-alias-label-caption, #8a8a8a);
   margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .iw-nav-scroll { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
-.iw-nav-row { display: flex; flex-direction: column; gap: 2px; padding: 9px 10px;
-  border-radius: 8px; cursor: pointer; position: relative; }
+.iw-nav-row { display: flex; flex-direction: row; align-items: flex-start; gap: 8px;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer; position: relative; }
 .iw-nav-row:hover { background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,.04)); }
 .iw-nav-row.on { background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,.07)); }
+.iw-nav-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .iw-nav-top { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
 .iw-nav-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; min-width: 0; flex: 1; }
+.iw-nav-sub { font-size: 12px; color: var(--dsw-alias-label-caption, #8a8a8a);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-left: 0; line-height: 1.4; }
 .iw-nav-meta { font-size: 12px; color: var(--dsw-alias-label-caption, #8a8a8a);
   padding-left: 18px; display: flex; align-items: center; gap: 8px; }
 .iw-nav-actions { display: none; gap: 4px; }
@@ -156,6 +160,7 @@ export const STYLE = `
 @keyframes iw-spin { to { transform: rotate(360deg); } }
 
 /* ── markdown 渲染区 ─────────────────────────────────────────── */
+.iw-md { word-wrap: break-word; overflow-wrap: anywhere; }
 .iw-md h1, .iw-md h2, .iw-md h3 { font-weight: 700; margin: 1.4em 0 .6em; line-height: 1.3; }
 .iw-md h1 { font-size: 1.5em; }
 .iw-md h2 { font-size: 1.25em; }
@@ -191,6 +196,22 @@ export const STYLE = `
 .iw-summary-meta { font-size: 13px; color: var(--dsw-alias-label-caption); margin-bottom: 6px; }
 .iw-summary-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
 .iw-summary-hint { font-size: 12px; color: var(--dsw-alias-label-caption); margin-top: 8px; }
+.iw-summary-review { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.iw-summary-review details { border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px; padding: 6px 10px; background: var(--dsw-alias-bg-layer-1, #fff); }
+.iw-summary-review details + details { margin-top: 0; }
+.iw-summary-review summary { cursor: pointer; font-weight: 600; font-size: 13px;
+  color: var(--dsw-alias-label-primary); padding: 2px 0; }
+.iw-essay-text { white-space: pre-wrap; word-wrap: break-word;
+  font-family: inherit; font-size: 13px; line-height: 1.7;
+  background: var(--dsw-alias-bg-layer-2, #f5f5f4);
+  padding: 10px 12px; border-radius: 6px; margin: 6px 0 0; max-height: 360px;
+  overflow: auto; }
+.iw-pdf-meta { font-size: 13px; color: var(--dsw-alias-label-caption, #8a8a8a);
+  margin: 0 0 8px; }
+.iw-question-images { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.iw-question-images img { max-width: 100%; height: auto; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l2); }
 
 /* ── 移动端 ──────────────────────────────────────────────────── */
 @media (max-width: 700px) {
@@ -214,8 +235,19 @@ export const STYLE = `
 .iw-pdf-render .iw-md ins { color: #15803d; background: #dcfce7; }
 .iw-pdf-render .iw-md mark { color: #1e3a8a; background: #dbeafe; }
 .iw-pdf-render .iw-pdf-section { margin-bottom: 18px;
-  padding-bottom: 12px; border-bottom: 1px solid #eee;
-  page-break-inside: avoid; break-inside: avoid; }
+  padding-bottom: 12px; border-bottom: 1px solid #eee; }
+/* Per-card page-break-inside: avoid was making huge cards (批改 + 思路解析)
+   overflow a single page, then jsPDF painted all subsequent cards on top of
+   each other on the next page. Let the renderer break naturally instead. */
 .iw-pdf-render .iw-pdf-pagebreak { page-break-before: always; break-before: page;
   height: 1px; }
+/* 作文原文：&lt;pre&gt; 默认 white-space:pre 不换行，会被页面右边裁掉 */
+.iw-pdf-render .iw-pdf-essay-text { white-space: pre-wrap; word-wrap: break-word;
+  font-family: inherit; font-size: 13px; line-height: 1.7;
+  background: var(--dsw-alias-bg-layer-2, #f5f5f4);
+  padding: 12px 14px; border-radius: 8px; margin: 0; }
+/* mermaid 在 detached wrapper 里常常 width 坍缩成 0;强制 block+max-width */
+.iw-pdf-render .iw-mermaid { display: block; }
+.iw-pdf-render .iw-mermaid svg { display: block; max-width: 100%; height: auto;
+  margin: 0 auto; }
 `;
