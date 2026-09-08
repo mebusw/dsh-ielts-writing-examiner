@@ -1,5 +1,5 @@
 {
-  "name": "dsh-ielts-examiner",
+  "name": "dsh-ielts-writing-examiner",
   "version": "1.0.0",
   "description": "IELTS 写作练习与 AI 评分。题目 → 作文 → AI 评分 + 学习记录层。DSH web-profile plugin.",
   "type": "module",
@@ -14,7 +14,8 @@
     "cordis.patch.yml",
     "assets",
     "prompts",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

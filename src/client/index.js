@@ -13,6 +13,7 @@ import { STYLE } from './styles.js';
 import { createApi } from './api.js';
 import { createComponents } from './components.js';
 import { createPages } from './pages.js';
+import { t } from './strings.js';
 
 const RPC = '/ielts-examiner';
 const ASSET_BASE = '/ielts-examiner/asset';
@@ -30,6 +31,18 @@ const panel = (() => {
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
   };
 })();
+
+// Footer label follows the host language. The host exposes a getLang() hook
+// via ctx.get('lang') — dsh-web-profile injects it so the sidebar button
+// reads in the same language as the rest of the chrome. Defaults to zh when
+// the host doesn't speak (e.g. tests, cordis).
+function getLang(ctx) {
+  const getter = ctx.get && ctx.get('lang');
+  if (typeof getter === 'function') {
+    try { return getter() || 'zh'; } catch { /* fall through */ }
+  }
+  return 'zh';
+}
 
 function apply(ctx) {
   const React = require('react');
@@ -51,6 +64,8 @@ function apply(ctx) {
   const api = createApi(connection);
   const c = createComponents(h);
   const p = createPages(React, h, c);
+  const lang = getLang(ctx);
+  const T = t(lang);
 
   function usePanelOpen() {
     const [open, setOpen] = useState(panel.open);
@@ -64,11 +79,11 @@ function apply(ctx) {
       className: 'iw-footer-action' + (open ? ' on' : ''),
       type: 'button',
       onClick: () => panel.toggle(),
-      title: open ? '关闭 IELTS 写作工作台' : '打开 IELTS 写作工作台',
+      title: open ? T.footerCloseTitle : T.footerOpenTitle,
       'aria-expanded': open ? 'true' : 'false',
     },
-      h('span', { className: 'glyph' }, '◈'),
-      'IELTS 写作',
+      h('span', { className: 'glyph' }, T.footerGlyph),
+      T.footerLabel,
     );
   }
 

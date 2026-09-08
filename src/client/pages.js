@@ -6,6 +6,7 @@
 // names must resolve to the React instance from the ModuleLoader's require('react')).
 
 import { renderMarkdown, renderMermaidIn } from './md.js';
+import { t } from './strings.js';
 // import { exportNodeToPdf } from './export-pdf.js';  // 暂时隐藏，恢复时打开
 
 export function createPages(React, h, c) {
@@ -16,9 +17,26 @@ export function createPages(React, h, c) {
     return String(text || '').trim() ? String(text).trim().split(/\s+/).length : 0;
   }
 
-  function timeAgo(ts) {
+  // timeAgo strings live inline in a tiny helper so the rest of the file
+  // doesn't have to thread lang through. Both languages are tiny.
+  function timeAgo(ts, lang) {
     if (!ts) return '';
     const d = Math.floor((Date.now() - ts) / 1000);
+    if (lang === 'en') {
+      if (d < 60) return d === 1 ? '1 second ago' : `${d} seconds ago`;
+      if (d < 3600) {
+        const m = Math.floor(d / 60);
+        return m === 1 ? '1 minute ago' : `${m} minutes ago`;
+      }
+      if (d < 86400) {
+        const h = Math.floor(d / 3600);
+        return h === 1 ? '1 hour ago' : `${h} hours ago`;
+      }
+      const days = Math.floor(d / 86400);
+      if (days < 30) return days === 1 ? '1 day ago' : `${days} days ago`;
+      const date = new Date(ts);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
     if (d < 60) return `${d}秒前`;
     if (d < 3600) return `${Math.floor(d / 60)}分钟前`;
     if (d < 86400) return `${Math.floor(d / 3600)}小时前`;
@@ -32,40 +50,42 @@ export function createPages(React, h, c) {
   // - task type always shows for any session (small / big essay)
   // - score only when status === 'done' and overallBand is set
   // - time is completedAt when available, else createdAt
-  function navSubtitle(s) {
+  function navSubtitle(s, lang) {
     if (!s) return '';
+    const T = t(lang);
     const parts = [];
-    if (s.task === '1') parts.push('小作');
-    else if (s.task === '2') parts.push('大作');
-    else if (s.questionId) parts.push('题目');
+    if (s.task === '1') parts.push(T.taskSmall);
+    else if (s.task === '2') parts.push(T.taskBig);
+    else if (s.questionId) parts.push(T.taskGeneric);
     if (s.status === 'done' && typeof s.overallBand === 'number') {
       parts.push(s.overallBand.toFixed(1));
     }
     const ts = s.completedAt || s.createdAt;
-    if (ts) parts.push(timeAgo(ts));
+    if (ts) parts.push(timeAgo(ts, lang));
     return parts.join(' · ');
   }
 
   // ────────────────────────────────────────────────────────────────
   // Nav — 264px left column. Auto-refresh every 3s.
   // ────────────────────────────────────────────────────────────────
-  function Nav({ sessions, activeId, onSelect, onNew, onClone, onDelete, onLang, lang, sessionCountLabel }) {
+  function Nav({ sessions, activeId, onSelect, onNew, onClone, onDelete, onLang, lang }) {
+    const T = t(lang);
     const list = Array.isArray(sessions) ? sessions : [];
     const sorted = list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return h('aside', { className: 'iw-nav' },
       h('div', { className: 'iw-nav-head' },
         h('div', { className: 'iw-nav-titles' },
-          h('p', { className: 'iw-nav-title' }, 'IELTS 写作'),
-          h('p', { className: 'iw-nav-sub' }, '题目 → 作文 → AI 评分'),
+          h('p', { className: 'iw-nav-title' }, T.navTitle),
+          h('p', { className: 'iw-nav-sub' }, T.navSubtitle),
         ),
-        iwBtn({ primary: true, onClick: onNew }, '+ 新练习'),
+        iwBtn({ primary: true, onClick: onNew }, T.newPractice),
       ),
       h('div', { className: 'iw-nav-scroll' },
         sorted.length === 0
-          ? h('div', { className: 'iw-nav-meta', style: { padding: '20px 10px', textAlign: 'center' } }, '暂无练习')
+          ? h('div', { className: 'iw-nav-meta', style: { padding: '20px 10px', textAlign: 'center' } }, T.emptyList)
           : sorted.map((s) => {
               const on = s.id === activeId;
-              const sub = navSubtitle(s);
+              const sub = navSubtitle(s, lang);
               return h('div', {
                 key: s.id, className: 'iw-nav-row' + (on ? ' on' : ''), onClick: () => onSelect(s.id),
               },
@@ -75,8 +95,8 @@ export function createPages(React, h, c) {
                     h('div', { className: 'iw-nav-name', title: s.questionTitle }, s.questionTitle),
                     h('div', { className: 'iw-nav-actions' },
                       (s.status === 'done' || s.status === 'failed') &&
-                        iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onClone(s.id); }, title: '用同一题再来一次' }, '↻'),
-                      iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onDelete(s.id); }, title: '删除这次练习' }, '✕'),
+                        iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onClone(s.id); }, title: T.cloneTooltip }, '↻'),
+                      iwBtn({ ghost: true, tiny: true, onClick: (e) => { e.stopPropagation(); onDelete(s.id); }, title: T.deleteTooltip }, '✕'),
                     ),
                   ),
                   sub ? h('div', { className: 'iw-nav-sub' }, sub) : null,
@@ -85,7 +105,7 @@ export function createPages(React, h, c) {
             }),
       ),
       h('div', { className: 'iw-nav-foot' },
-        h('div', null, sessionCountLabel || `共 ${sorted.length} 次练习`),
+        h('div', null, T.sessionCount(sorted.length)),
         h('div', null,
           iwBtn({ ghost: true, tiny: true, className: lang === 'zh' ? 'on' : '', onClick: () => onLang('zh') }, '中'),
           iwBtn({ ghost: true, tiny: true, className: lang === 'en' ? 'on' : '', onClick: () => onLang('en') }, 'EN'),
@@ -97,7 +117,8 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // NewPractice — pick question + write essay.
   // ────────────────────────────────────────────────────────────────
-  function NewPractice({ questions, selectedId, onSelect, essay, onEssayChange, onScore, error, saving }) {
+  function NewPractice({ questions, selectedId, onSelect, essay, onEssayChange, onScore, error, saving, lang }) {
+    const T = t(lang);
     const qArr = Array.isArray(questions) ? questions : [];
     const q = qArr.find((x) => x && x.id === selectedId);
     const wc = wordCount(essay);
@@ -113,39 +134,39 @@ export function createPages(React, h, c) {
       h('div', { className: 'iw-main-inner' },
         error ? h('div', { className: 'iw-error' }, error) : null,
         // 1. 选择题目
-        iwCard({ title: '1. 选择题目' },
-          iwField({ label: '题库' },
+        iwCard({ title: T.chooseQuestion },
+          iwField({ label: T.questionBank },
             iwSelect({
               value: selectedId,
               onChange: onSelect,
-              placeholder: '—— 请选择一道题 ——',
+              placeholder: T.selectPlaceholder,
               options: [
-                { value: 'g1', label: '── Task 1 ──', disabled: true },
+                { value: 'g1', label: T.taskGroup1, disabled: true },
                 ...qArr.filter((x) => x.task === '1').map((x) => ({
                   value: x.id, label: `【${x.type}】${optionLabel(x)}`,
                 })),
-                { value: 'g2', label: '── Task 2 ──', disabled: true },
+                { value: 'g2', label: T.taskGroup2, disabled: true },
                 ...qArr.filter((x) => x.task === '2').map((x) => ({
                   value: x.id, label: optionLabel(x),
                 })),
               ],
             }),
           ),
-          q ? h(QuestionPreview, { q }) : h('div', {
+          q ? h(QuestionPreview, { q, lang }) : h('div', {
             className: 'iw-md',
             style: { color: 'var(--dsw-alias-label-caption)', fontSize: 13, padding: '8px 0' },
-          }, '从下拉里选一题，下面会显示题干和图片。'),
+          }, T.questionHint),
         ),
         // 2. 写作
-        iwCard({ title: '2. 写作' },
+        iwCard({ title: T.writeCard },
           iwField({
-            label: '把你的作文写在这里',
-            counter: `${wc} 词`,
+            label: T.essayLabel,
+            counter: T.wordCount(wc),
           },
             iwTextarea({
               value: essay,
               onChange: onEssayChange,
-              placeholder: '把你的作文写在这里…',
+              placeholder: T.essayPlaceholder,
               rows: 14,
             }),
           ),
@@ -153,13 +174,14 @@ export function createPages(React, h, c) {
             primary: true,
             disabled: !selectedId || saving,
             onClick: onScore,
-          }, saving ? '保存中…' : '提交评分'),
+          }, saving ? T.saving : T.submitScore),
         ),
       ),
     );
   }
 
-  function QuestionPreview({ q }) {
+  function QuestionPreview({ q, lang }) {
+    const T = t(lang);
     const [collapsed, setCollapsed] = useState(false);
     const [overThreshold, setOverThreshold] = useState(false);
     const bodyRef = useRef(null);
@@ -197,7 +219,7 @@ export function createPages(React, h, c) {
       ),
       overThreshold
         ? iwBtn({ ghost: true, tiny: true, onClick: () => setCollapsed(!collapsed) },
-            collapsed ? '展开' : '收起')
+            collapsed ? T.expand : T.collapse)
         : null,
     );
   }
@@ -205,11 +227,12 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // Loading — View B.
   // ────────────────────────────────────────────────────────────────
-  function Loading({ message }) {
+  function Loading({ message, lang }) {
+    const T = t(lang);
     return h('div', { className: 'iw-main' },
       h('div', { className: 'iw-loading' },
         iwSpinner({}),
-        h('div', null, message || 'AI 考官正在批改，请稍候...'),
+        h('div', null, message || T.loading),
       ),
     );
   }
@@ -217,15 +240,16 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // Result — View C (default when active session.status === 'done').
   // ────────────────────────────────────────────────────────────────
-  function Result({ session, question, onAgain, api, sessionId, rootRef }) {
+  function Result({ session, question, onAgain, api, sessionId, rootRef, lang }) {
+    const T = t(lang);
     const r = session.result || {};
     const c = r.correction || {};
     const a = r.analysis || {};
     const strip = [
-      { key: 'taskResponse', label: 'Task Response' },
-      { key: 'coherenceCohesion', label: 'Coherence & Cohesion' },
-      { key: 'lexicalResource', label: 'Lexical Resource' },
-      { key: 'grammaticalRange', label: 'Grammatical Range' },
+      { key: 'taskResponse', label: T.stripTaskResponse },
+      { key: 'coherenceCohesion', label: T.stripCoherence },
+      { key: 'lexicalResource', label: T.stripLexical },
+      { key: 'grammaticalRange', label: T.stripGrammar },
     ];
     // PDF 导出暂时隐藏（用户反馈）。代码保留在 export-pdf.js，要恢复时
     // 把下面这段打开即可：
@@ -246,9 +270,9 @@ export function createPages(React, h, c) {
     return h('div', { className: 'iw-main' },
       h('div', { className: 'iw-main-inner' },
         h('div', { className: 'iw-infobar' },
-          h('h2', null, session.questionTitle || '(untitled)'),
+          h('h2', null, session.questionTitle || T.untitled),
           iwBadge({ band: c.overallBand }),
-          iwBtn({ primary: true, onClick: onAgain }, '再来一次'),
+          iwBtn({ primary: true, onClick: onAgain }, T.again),
         ),
         // 4 strip cards
         h('div', { className: 'iw-strip' },
@@ -261,7 +285,7 @@ export function createPages(React, h, c) {
           }),
         ),
         // 题目卡：在思路解析上方，回看时不用滚回顶部也能看到原题。
-        question ? iwCard({ title: '题目' },
+        question ? iwCard({ title: T.cardQuestion },
           (question.task || question.type || question.date)
             ? h('p', { className: 'iw-pdf-meta' },
                 [question.task ? `Task ${question.task}` : '', question.type, question.date]
@@ -280,24 +304,24 @@ export function createPages(React, h, c) {
             : null,
         ) : null,
         // 思路解析
-        iwCard({ title: '思路解析' },
+        iwCard({ title: T.cardStrategy },
           h('div', { className: 'iw-md', dangerouslySetInnerHTML: {
             __html: renderMarkdown([
-              a.strategy ? `**答题策略**\n\n${a.strategy}` : '',
-              a.keyPoints?.length ? `**写作重点**\n\n${a.keyPoints.map((p) => `- ${p}`).join('\n')}` : '',
-              a.techniques?.length ? `**写作技巧**\n\n${a.techniques.map((p) => `- ${p}`).join('\n')}` : '',
-              a.mermaidDiagram ? `**段落结构**\n\n\`\`\`mermaid\n${a.mermaidDiagram}\n\`\`\`` : '',
+              a.strategy ? `**${T.strategyTitle}**\n\n${a.strategy}` : '',
+              a.keyPoints?.length ? `**${T.keyPointsTitle}**\n\n${a.keyPoints.map((p) => `- ${p}`).join('\n')}` : '',
+              a.techniques?.length ? `**${T.techniquesTitle}**\n\n${a.techniques.map((p) => `- ${p}`).join('\n')}` : '',
+              a.mermaidDiagram ? `**${T.structureTitle}**\n\n\`\`\`mermaid\n${a.mermaidDiagram}\n\`\`\`` : '',
             ].filter(Boolean).join('\n\n')),
           } }),
         ),
         // 批改
-        iwCard({ title: '批改' },
+        iwCard({ title: T.cardCorrection },
           c.annotatedEssayHtml
             ? h('div', { className: 'iw-md', dangerouslySetInnerHTML: { __html: c.annotatedEssayHtml } })
-            : h('div', null, '(无批改)'),
+            : h('div', null, T.noCorrection),
           c.grammarFixes?.length ? h('details', null,
             h('summary', { style: { cursor: 'pointer', fontWeight: 600, marginTop: 8 } },
-              `语法批改（${c.grammarFixes.length} 条）`),
+              T.grammarTitle(c.grammarFixes.length)),
             h('ul', { style: { marginTop: 8 } },
               // 用 React 元素 <strong> 渲染高亮；之前用字符串模板
               // "<u>${g.phrase}</u>" 被 React 当文本节点，<u> 被转义掉。
@@ -312,23 +336,23 @@ export function createPages(React, h, c) {
           ) : null,
           c.vocabularyDiversity?.length ? h('details', null,
             h('summary', { style: { cursor: 'pointer', fontWeight: 600, marginTop: 8 } },
-              `用词多样性（${c.vocabularyDiversity.length} 条）`),
+              T.vocabTitle(c.vocabularyDiversity.length)),
             h('ul', { style: { marginTop: 8 } },
               c.vocabularyDiversity.map((v, i) => h('li', { key: i },
                 h('strong', null, v.phrase),
                 ' — ',
                 v.comment,
-                v.alternatives?.length ? `（替代：${v.alternatives.join(' / ')}）` : null,
+                v.alternatives?.length ? T.vocabAlt(v.alternatives) : null,
               )),
             ),
           ) : null,
         ),
         // 总体评语
-        iwCard({ title: '总体评语' },
+        iwCard({ title: T.cardOverall },
           h('div', { className: 'iw-md' },
-            h('p', null, c.overallComment || '(无评语)')),
+            h('p', null, c.overallComment || T.noComment)),
         ),
-        r.sampleEssay ? iwCard({ title: '高分范文' },
+        r.sampleEssay ? iwCard({ title: T.cardSample },
           h('div', { className: 'iw-md', dangerouslySetInnerHTML: { __html: renderMarkdown(r.sampleEssay) } }),
         ) : null,
       ),
@@ -338,11 +362,12 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // SessionDetail — View D (inline summary at top of right pane).
   // ────────────────────────────────────────────────────────────────
-  function SessionDetail({ session }) {
+  function SessionDetail({ session, lang }) {
+    const T = t(lang);
     const c = session.result?.correction || {};
     return h('div', { className: 'iw-summary' },
       h('div', { className: 'iw-summary-meta' },
-        `${session.questionTitle} · ${timeAgo(session.createdAt)} · ${session.wordCount} 词`),
+        T.summaryMeta(session.questionTitle, timeAgo(session.createdAt, lang), session.wordCount)),
       h('div', { className: 'iw-summary-title' },
         iwBadge({ band: c.overallBand }),
         h('span', { style: { marginLeft: 8 } },
@@ -351,9 +376,9 @@ export function createPages(React, h, c) {
           `LR ${c.criteriaScores?.lexicalResource?.score ?? '—'} · ` +
           `GRA ${c.criteriaScores?.grammaticalRange?.score ?? '—'}`)),
       c.analysis?.strategy ? h('p', null,
-        (c.analysis.strategy || '').slice(0, 200) + (c.analysis.strategy.length > 200 ? '…' : '')) : null,
+        (c.analysis.strategy || '').slice(0, 200) + ((c.analysis.strategy || '').length > 200 ? '…' : '')) : null,
       session.status === 'done'
-        ? h('div', { className: 'iw-summary-hint' }, '向下滚动查看完整批改')
+        ? h('div', { className: 'iw-summary-hint' }, T.summaryHint)
         : null,
     );
   }
@@ -374,20 +399,7 @@ export function createPages(React, h, c) {
     const [lang, setLang] = useState('zh');
     const resultRef = useRef(null);
 
-    // i18n strings used at the root level. v1 keeps the surface tiny —
-    // only the empty-state title + tagline change between zh/en. Per-card
-    // strings (titles, buttons) stay Chinese for now since the product is
-    // for Chinese students.
-    const sArr = Array.isArray(sessions) ? sessions : [];
-    const T = {
-      welcomeTitle: lang === 'en' ? 'IELTS Writing Practice' : '欢迎使用 IELTS 写作练习',
-      welcomeBody: lang === 'en'
-        ? 'Click "+ New practice" on the top-left to begin.'
-        : '点左上方 "+ 新练习" 开始你的第一次练习。',
-      newPracticeBtn: lang === 'en' ? '+ New practice' : '+ 新练习',
-      closing: lang === 'en' ? '✕ Close' : '✕ 关闭',
-      sessionCount: lang === 'en' ? `${sArr.length} practices` : `共 ${sArr.length} 次练习`,
-    };
+    const T = t(lang);
 
     // Debug — remove after diagnostics
     console.info('[iw] Root render view=', view, 'questions=', questions.length, 'selectedQ=', selectedQ);
@@ -414,7 +426,7 @@ export function createPages(React, h, c) {
             setView('empty');
           }
         } catch (e) {
-          setError('初始化失败：' + (e?.message || e));
+          setError(T.initError(e?.message || e));
           setView('empty');
         }
       })();
@@ -455,7 +467,7 @@ export function createPages(React, h, c) {
         setSelectedQ(s.questionId || '');
         return s;
       } catch (e) {
-        setError('读取 session 失败：' + (e?.message || e));
+        setError(T.loadSessionError(e?.message || e));
       }
     }
 
@@ -480,12 +492,12 @@ export function createPages(React, h, c) {
         await refreshSessions();
         await handleSelectSession(newId);
       } catch (e) {
-        setError('克隆失败：' + (e?.message || e));
+        setError(T.cloneError(e?.message || e));
       }
     }
 
     async function handleDelete(id) {
-      if (!confirm('确认删除这次练习？')) return;
+      if (!confirm(T.deleteConfirm)) return;
       try {
         await api.delete(id);
         const list = await refreshSessions();
@@ -494,7 +506,7 @@ export function createPages(React, h, c) {
           else handleNew();
         }
       } catch (e) {
-        setError('删除失败：' + (e?.message || e));
+        setError(T.deleteError(e?.message || e));
       }
     }
 
@@ -515,7 +527,7 @@ export function createPages(React, h, c) {
     }
 
     async function handleScore() {
-      if (!selectedQ) { setError('请先选择一道题'); return; }
+      if (!selectedQ) { setError(T.pleaseSelectQuestion); return; }
       setError(null);
       try {
         let id = activeId;
@@ -531,7 +543,7 @@ export function createPages(React, h, c) {
         await refreshSessions();
         await loadActive(id, true);
       } catch (e) {
-        setError('提交评分失败：' + (e?.message || e));
+        setError(T.scoreError(e?.message || e));
       }
     }
 
@@ -549,18 +561,18 @@ export function createPages(React, h, c) {
         return h(NewPractice, {
           questions, selectedId: selectedQ, onSelect: setSelectedQ,
           essay, onEssayChange: handleEssayChange, onScore: handleScore,
-          error, saving,
+          error, saving, lang,
         });
       }
       if (view === 'loading') {
-        return h(Loading, { message: 'AI 考官正在批改，请稍候...' });
+        return h(Loading, { message: T.loading, lang });
       }
       if (view === 'failed' && active) {
         return h('div', { className: 'iw-main' },
           h('div', { className: 'iw-main-inner' },
-            h('div', { className: 'iw-error' }, active.error || '本次评分失败。'),
-            iwBtn({ primary: true, onClick: () => loadActive(activeId, true) }, '重试'),
-            iwBtn({ ghost: true, onClick: handleNew }, '新练习'),
+            h('div', { className: 'iw-error' }, active.error || T.failedTitle),
+            iwBtn({ primary: true, onClick: () => loadActive(activeId, true) }, T.retry),
+            iwBtn({ ghost: true, onClick: handleNew }, T.newPracticeBtn),
           ));
       }
       // detail or result: render Result with optional SessionDetail on top
@@ -568,15 +580,15 @@ export function createPages(React, h, c) {
         const question = questions.find((q) => q.id === active.questionId) || null;
         return h('div', { ref: resultRef, className: 'iw-main' },
           h('div', { className: 'iw-main-inner' },
-            h(SessionDetail, { session: active }),
-            h(Result, { session: active, question, onAgain: handleNew, api, sessionId: activeId, rootRef: resultRef }),
+            h(SessionDetail, { session: active, lang }),
+            h(Result, { session: active, question, onAgain: handleNew, api, sessionId: activeId, rootRef: resultRef, lang }),
           ));
       }
       if (active) {
         return h(NewPractice, {
           questions, selectedId: selectedQ, onSelect: setSelectedQ,
           essay, onEssayChange: handleEssayChange, onScore: handleScore,
-          error, saving,
+          error, saving, lang,
         });
       }
       return null;
@@ -584,8 +596,8 @@ export function createPages(React, h, c) {
 
     return h('div', { className: 'iw-root', style: { height: '100%', display: 'flex', flexDirection: 'column' } },
       h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--dsw-alias-border-l2)' } },
-        h('div', { style: { fontWeight: 600 } }, 'IELTS 写作 · AI 评分工作台'),
-        iwBtn({ ghost: true, tiny: true, onClick: onClose }, '✕ 关闭'),
+        h('div', { style: { fontWeight: 600 } }, T.headerTitle),
+        iwBtn({ ghost: true, tiny: true, onClick: onClose }, T.closeBtn),
       ),
       h('div', { className: 'iw-workbench' },
         h(Nav, {
