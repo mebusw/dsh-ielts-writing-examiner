@@ -12,6 +12,9 @@ The plugin follows DSH's currently configured default model — there is
 no per-plugin provider switcher and no API key UI. Configure your
 model in the host runtime.
 
+![](./assets/poster.jpg)
+
+
 ## Install
 
 The plugin installs into a DSH profile via `dsh plugin add`, which is a

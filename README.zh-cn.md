@@ -10,6 +10,9 @@ session 保存到侧栏，可以回看、克隆或删除。
 模型完全跟 DSH runtime 当前默认模型走，插件里没有渠道切换也没有
 API key UI —— 模型配置在 host 那边改。
 
+
+![](./assets/poster.jpg)
+
 ## 安装
 
 插件通过 `dsh plugin add` 安装进某个 DSH profile，本质上是把
