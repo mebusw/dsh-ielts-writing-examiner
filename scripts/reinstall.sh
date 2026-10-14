@@ -9,8 +9,8 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 echo "[reinstall] building $HERE/lib/ ..."
 node "$HERE/scripts/build.mjs"
 
-echo "[reinstall] refreshing $PROFILE_DIR/node_modules/dsh-ielts-examiner ..."
-rm -rf "$PROFILE_DIR/node_modules/dsh-ielts-examiner"
+echo "[reinstall] refreshing $PROFILE_DIR/node_modules/dsh-ielts-writing-examiner ..."
+rm -rf "$PROFILE_DIR/node_modules/dsh-ielts-writing-examiner"
 (cd "$PROFILE_DIR" && pnpm add "file:$HERE")
 
 echo "[reinstall] done. reload dsh web."

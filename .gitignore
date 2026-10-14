@@ -8,3 +8,6 @@ dist/
 playwright-report/
 test-results/
 e2e/.auth/
+
+# pnpm is the package manager for this repo; this is a stale npm artifact.
+package-lock.json

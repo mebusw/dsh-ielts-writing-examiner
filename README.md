@@ -15,22 +15,76 @@ model in the host runtime.
 ![](./assets/poster.jpg)
 
 
+## Dependencies
+
+| Package | Version | Scope |
+| --- | --- | --- |
+| `dsh-app-dock` | `^0.1.5` | npm dependency |
+| `@deepseek-ai/cordis` | `^4.0.2` | peer dependency |
+
+**`dsh-app-dock` is unscoped** — there is no `@deepseek-ai/` prefix, and
+`npm view @deepseek-ai/dsh-app-dock` returns 404. It owns the shared
+bottom-left icon grid where this plugin's entry button lives.
+
+The dependency alone is not enough: DSH composes only the bundle layers
+listed in a profile's `dsh.profile.bundles`, and an npm dependency does
+not appear there on its own. Install the dock as a **separate** step:
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web add dsh-app-dock
+npx @deepseek-ai/dsh plugin --profile web add dsh-ielts-writing-examiner
+```
+
+then confirm both are listed:
+
+```bash
+npx @deepseek-ai/dsh --profile web --dump-config | grep -E '^\s*name:'
+# expect both '@deepseek-ai/dsh-app-dock' and 'dsh-ielts-writing-examiner'
+```
+
+If the dock is absent the plugin still works. The client half tries to
+register with the dock, waits out a 1.5 s grace period, and then claims a
+self-owned footer button. A dock arriving later takes precedence and the
+fallback is withdrawn, so there is always exactly one entry point —
+`{"phase":"entry","entry":"dock"}` vs `{"phase":"entry","entry":"footer"}`
+in `~/.ielts-examiner/diag.jsonl` tells you which one is live.
+
+### Model resolution
+
+Scoring does **not** assume any particular provider. The host half reads
+the user's selection from the `agentDefaultModel` service and dispatches
+through the `llm` service, which owns endpoint and credential resolution
+(`@deepseek-ai/dsh-llm` exposes no `baseUrl` at all). A hardcoded
+provider table only survives as the fallback for running outside a DSH
+runtime.
+
+This means `llm` and the `dsh-llm-*` adapter packages must be present in
+the profile. Stripping them out degrades scoring to the standalone HTTP
+path, which only knows DeepSeek-shaped endpoints.
+
 ## Install
 
 The plugin installs into a DSH profile via `dsh plugin add`, which is a
 thin wrapper around `pnpm add` in the profile's directory.
 
+Its GUI entry point lives in the shared **application dock**
+(`dsh-app-dock`, see [Dependencies](#dependencies)), so install the dock
+first, then this plugin:
+
 ```bash
-dsh plugin --profile web add dsh-ielts-writing-examiner
+npx @deepseek-ai/dsh plugin --profile web add dsh-app-dock
+npx @deepseek-ai/dsh plugin --profile web add dsh-ielts-writing-examiner
 ```
 
-After install, restart `dsh web` (or rely on `patchReload: live` in the
-profile config to hot-pick-up the new bundle). A **IELTS Writing**
-button appears in the sidebar footer; click it to open the workbench.
+Replace `web` with the target profile name (e.g. `desktop`). After
+install, restart `dsh web` (or rely on `patchReload: live` in the
+profile config to hot-pick-up the new bundle). An **IELTS Writing**
+button appears in the dock's icon grid at the bottom-left footer; click
+it to open the workbench.
 
-The package must also be listed in the profile's `dsh.profile.bundles`
-so its host half is composed. The local dev workflow below does this
-for you.
+The packages must also be listed in the profile's `dsh.profile.bundles`
+so their host halves are composed. The local dev workflow below does
+this for you.
 
 ## Local development
 
@@ -49,9 +103,37 @@ pnpm verify
 `scripts/reinstall.sh` runs `pnpm build` then `pnpm add file:<repo>` in
 `~/.dsh/profiles/web`. After it returns, reload the web profile.
 
+## Supported DSH version
+
+Targets **Harness 0.2.0-rc.2**:
+
+- Host language is read from `ctx.get('locale')` (the 0.2.x
+  `LocaleRuntime`, with `subscribe`); the older `ctx.get('lang')` hook is
+  kept only as a fallback.
+- The dock is arbitrated under 0.2.x load ordering: dock first, self-owned
+  footer only when the dock is absent.
+
+## Troubleshooting
+
+When the entry button doesn't appear, the plugin appends its arbitration
+to `~/.ielts-examiner/diag.jsonl` (one JSON object per line):
+
+```bash
+tail -n 5 ~/.ielts-examiner/diag.jsonl
+```
+
+- `{"phase":"entry","entry":"dock"}` — registered with the dock; if the
+  matching `entry-rendered` says `dom:false`, the dock accepted it but
+  didn't render it.
+- `{"phase":"entry","entry":"footer"}` — dock absent, self-owned footer
+  fallback in use.
+- Neither line — the client half never loaded; check the profile's
+  `dsh.profile.bundles`.
+
 ## Usage
 
-1. Click **IELTS Writing** in the sidebar footer to open the workbench.
+1. Click **IELTS Writing** in the application dock (bottom-left footer) to
+   open the workbench.
 2. The sidebar lists every practice as `task · score · time`. Hover a
    row to reveal **↻** (re-attempt the same question) and **✕**
    (delete).
@@ -142,7 +224,7 @@ src/
 │   ├── default-model.js   # resolves provider/model from host settings
 │   └── question-bank.js   # reads assets/雅思真题.json
 ├── client/                # Browser side: React UI (function components)
-│   ├── index.js           # slot registration (footer button + overlay panel)
+│   ├── index.js           # entry arbitration (dock first / footer fallback) + overlay panel
 │   ├── pages.js           # Root, Nav, NewPractice, Result, Loading, SessionDetail
 │   ├── components.js      # iwCard / iwBtn / iwBadge / etc.
 │   ├── strings.js         # zh + en i18n table; `t(lang)` lookup

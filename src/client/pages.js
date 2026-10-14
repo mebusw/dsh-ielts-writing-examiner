@@ -117,7 +117,7 @@ export function createPages(React, h, c) {
   // ────────────────────────────────────────────────────────────────
   // NewPractice — pick question + write essay.
   // ────────────────────────────────────────────────────────────────
-  function NewPractice({ questions, selectedId, onSelect, essay, onEssayChange, onScore, error, saving, lang }) {
+  function NewPractice({ questions, selectedId, onSelect, essay, onEssayChange, onScore, error, saving, lang, bankError, onBankRetry, bankLoading }) {
     const T = t(lang);
     const qArr = Array.isArray(questions) ? questions : [];
     const q = qArr.find((x) => x && x.id === selectedId);
@@ -156,6 +156,17 @@ export function createPages(React, h, c) {
             className: 'iw-md',
             style: { color: 'var(--dsw-alias-label-caption)', fontSize: 13, padding: '8px 0' },
           }, T.questionHint),
+          // An empty dropdown used to be indistinguishable from a healthy one:
+          // the boot error was cleared by handleNew(), so a dead host left the
+          // picker showing only its two group headers and no explanation.
+          bankError
+            ? h('div', { className: 'iw-error', style: { marginTop: '10px' } },
+                bankError, ' ',
+                iwBtn({ tiny: true, ghost: true, onClick: onBankRetry },
+                  bankLoading ? T.loading : T.bankRetry))
+            : (!bankLoading && qArr.length === 0
+                ? h('div', { className: 'iw-error', style: { marginTop: '10px' } }, T.bankEmpty)
+                : null),
         ),
         // 2. 写作
         iwCard({ title: T.writeCard },
@@ -396,6 +407,10 @@ export function createPages(React, h, c) {
     const [active, setActive] = useState(null);
     const [error, setError] = useState(null);
     const [saving, setSaving] = useState(false);
+    // Tracked apart from `error`: handleNew() clears `error`, which used to
+    // erase the only clue that the question bank never loaded.
+    const [bankError, setBankError] = useState(null);
+    const [bankLoading, setBankLoading] = useState(false);
     const [lang, setLang] = useState('zh');
     const resultRef = useRef(null);
 
@@ -412,12 +427,29 @@ export function createPages(React, h, c) {
       } catch (e) { console.warn('listSessions failed', e); return []; }
     }, [api]);
 
+    // Question bank loader. Kept separate from the session boot path so a dead
+    // host RPC surfaces on the picker itself instead of being swallowed.
+    const loadBank = useCallback(async () => {
+      setBankLoading(true);
+      try {
+        const qs = await api.listQuestions();
+        setQuestions(Array.isArray(qs) ? qs : []);
+        setBankError(null);
+      } catch (e) {
+        console.warn('[iw] listQuestions failed', e);
+        setQuestions([]);
+        setBankError(t(lang).bankLoadError + ' ' + (e?.message || e));
+      } finally {
+        setBankLoading(false);
+      }
+    }, [api]);  // eslint-disable-line react-hooks/exhaustive-deps
+
     // Boot: load questions + sessions; pick default view.
     useEffect(() => {
       (async () => {
+        await loadBank();
         try {
-          const [qs, list] = await Promise.all([api.listQuestions(), refreshSessions()]);
-          setQuestions(qs);
+          const list = await refreshSessions();
           const latest = list[0];
           if (latest) {
             setActiveId(latest.id);
@@ -562,6 +594,7 @@ export function createPages(React, h, c) {
           questions, selectedId: selectedQ, onSelect: setSelectedQ,
           essay, onEssayChange: handleEssayChange, onScore: handleScore,
           error, saving, lang,
+          bankError, bankLoading, onBankRetry: loadBank,
         });
       }
       if (view === 'loading') {

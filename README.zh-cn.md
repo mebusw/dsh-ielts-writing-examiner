@@ -13,21 +13,68 @@ API key UI —— 模型配置在 host 那边改。
 
 ![](./assets/poster.jpg)
 
+## 依赖
+
+| 包 | 版本 | 作用域 |
+| --- | --- | --- |
+| `dsh-app-dock` | `^0.1.5` | npm 依赖 |
+| `@deepseek-ai/cordis` | `^4.0.2` | peer 依赖 |
+
+**`dsh-app-dock` 是无 scope 的**——没有 `@deepseek-ai/` 前缀，
+`npm view @deepseek-ai/dsh-app-dock` 会返回 404。本插件的入口按钮就
+住在它提供的左下角共享图标网格里。
+
+光有依赖不够：dsh 只拼装 profile `dsh.profile.bundles` 里列出的 bundle
+层，npm 依赖不会自动出现在那个列表里。所以坞要**单独装**：
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web add dsh-app-dock
+npx @deepseek-ai/dsh plugin --profile web add dsh-ielts-writing-examiner
+```
+
+装完确认两者都在：
+
+```bash
+npx @deepseek-ai/dsh --profile web --dump-config | grep -E '^\s*name:'
+# 应当同时看到 '@deepseek-ai/dsh-app-dock' 和 'dsh-ielts-writing-examiner'
+```
+
+坞缺席也能用。client 半边会先尝试入坞，等一个 1.5 秒宽限期后若坞仍
+未出现，就自持一个 footer 按钮兜底；坞迟到就让位并撤掉兜底入口——
+始终只有一个入口。`~/.ielts-examiner/diag.jsonl` 里的
+`{"phase":"entry","entry":"dock"}` 与 `{"phase":"entry","entry":"footer"}`
+告诉你当前生效的是哪一种。
+
+### 模型解析
+
+批改**不假设任何特定厂商**。host 半边从 `agentDefaultModel` 服务读取
+用户的选择，再通过 `llm` 服务发起调用——endpoint 和密钥的解析由它负责
+（`@deepseek-ai/dsh-llm` 里根本没有 `baseUrl` 这个概念）。硬编码的
+provider 表只作为「脱离 DSH 运行时」时的兜底保留。
+
+代价是 profile 里必须有 `llm` 和对应的 `dsh-llm-*` 适配器包。把它
+单独拆出去用，批改会退化到独立 HTTP 路径，而那条路只认 DeepSeek 形状
+的 endpoint。
+
 ## 安装
 
 插件通过 `dsh plugin add` 安装进某个 DSH profile，本质上是把
 `pnpm add` 在 profile 目录下执行一遍。
 
+GUI 入口在共享的**应用坞**里（`dsh-app-dock`，见[依赖](#依赖)），
+所以先装坞，再装本插件：
+
 ```bash
-dsh plugin --profile web add dsh-ielts-writing-examiner
+npx @deepseek-ai/dsh plugin --profile web add dsh-app-dock
+npx @deepseek-ai/dsh plugin --profile web add dsh-ielts-writing-examiner
 ```
 
-装好之后重启 `dsh web`（或者靠 profile 配置里的 `patchReload: live`
-热加载新 bundle）。左下角 sidebar footer 会多一个 **IELTS 写作**
-按钮，点开就是工作台。
+把 `web` 换成目标 profile 名（如 `desktop`）。装好之后重启 `dsh web`
+（或者靠 profile 配置里的 `patchReload: live` 热加载新 bundle）。dsh
+左下角应用坞的图标网格里会出现 **IELTS 写作** 按钮，点开就是工作台。
 
 注意：除了把包安装进去，profile 的 `dsh.profile.bundles` 里也要列
-上这个包，host 半边才会被拼到 patch tree 上。下面的本地开发流程
+上这些包，host 半边才会被拼到 patch tree 上。下面的本地开发流程
 会帮你一起搞定。
 
 ## 本地开发
@@ -48,9 +95,32 @@ pnpm verify
 `~/.dsh/profiles/web` 里执行 `pnpm add file:<repo>`。脚本退出后，
 刷新一下 web profile 即可。
 
+## 适配的 DSH 版本
+
+以 **Harness 0.2.0-rc.2** 为适配目标：
+
+- 宿主语言读 `ctx.get('locale')`（0.2.x 的 LocaleRuntime，带
+  `subscribe`）；旧的 `ctx.get('lang')` 钩子保留为兜底。
+- 应用坞按 0.2.x 的加载顺序仲裁：坞优先，缺席才自持 footer。
+
+## 排障
+
+入口按钮没出现时，插件会把裁决过程落到
+`~/.ielts-examiner/diag.jsonl`（每行一条 JSON）：
+
+```bash
+tail -n 5 ~/.ielts-examiner/diag.jsonl
+```
+
+- `{"phase":"entry","entry":"dock"}` —— 已入坞；配 `entry-rendered`
+  里的 `dom:false` 说明坞收了但没渲染。
+- `{"phase":"entry","entry":"footer"}` —— 坞缺席，已自持 footer 兜底。
+- 两条都没有 —— client 半边根本没装载（检查 profile 的
+  `dsh.profile.bundles`）。
+
 ## 使用
 
-1. 点 sidebar 底部的 **IELTS 写作** 按钮，打开工作台。
+1. 点应用坞里的 **IELTS 写作** 按钮（或兜底 footer 按钮），打开工作台。
 2. 侧栏列出每一次练习，格式是 `题目类型 · 分数 · 时间`。鼠标悬
    停一行会露出 **↻**（同一题再来一次）和 **✕**（删除）。
 3. 侧栏顶部 **+ 新练习** 打开选题页，从内置题库里挑一道 Task 1
@@ -132,7 +202,7 @@ src/
 │   ├── default-model.js   # 从 host 配置里读 provider/model
 │   └── question-bank.js   # 读 assets/雅思真题.json
 ├── client/                # 浏览器端：React UI（function components）
-│   ├── index.js           # slot 注册（footer 按钮 + overlay 面板）
+│   ├── index.js           # 入口仲裁（应用坞优先 / footer 兜底）+ overlay 面板
 │   ├── pages.js           # Root, Nav, NewPractice, Result, Loading, SessionDetail
 │   ├── components.js      # iwCard / iwBtn / iwBadge / …
 │   ├── strings.js         # 中英 i18n 表；`t(lang)` 查表

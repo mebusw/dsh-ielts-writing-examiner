@@ -17,12 +17,12 @@ import { findById } from './question-bank.js';
 
 function logInfo(scope, msg) {
   // eslint-disable-next-line no-console
-  console.log(`[dsh-ielts-examiner] ${scope}: ${msg}`);
+  console.log(`[dsh-ielts-writing-examiner] ${scope}: ${msg}`);
 }
 
 function logError(scope, e) {
   // eslint-disable-next-line no-console
-  console.error(`[dsh-ielts-examiner] ${scope}:`, e?.stack || e);
+  console.error(`[dsh-ielts-writing-examiner] ${scope}:`, e?.stack || e);
 }
 
 async function streamChatJson({ baseUrl, apiKey, model, prompt, signal, timeoutMs = 300_000 }) {
@@ -94,6 +94,72 @@ function safeParseJson(text) {
   return JSON.parse(s);
 }
 
+/**
+ * Send one prompt through the runtime's `llm` service and collect its text.
+ *
+ * This is the provider-agnostic path. `@deepseek-ai/dsh-llm` exposes no baseUrl
+ * at all — endpoint and credentials live in the adapter — so a plugin cannot
+ * assemble the HTTP request itself for an arbitrary provider. The service
+ * contract (dsh-llm 0.2.x):
+ *
+ *   const call = await llm.prepareCall({ provider, model }, signal);
+ *   const stream = call.stream({ ...call.config, messages });   // one-shot
+ *
+ * `callConfigEquals` only compares provider/model/reasoningEffort/temperature/
+ * maxTokens/stop, so attaching `messages` cannot break the prepared-call guard.
+ * Messages are block arrays, not strings: `{ role, content: [{ type, text }] }`.
+ *
+ * Record shapes vary by adapter. The raw adapter stream (dsh-llm-pi-ai) yields
+ * FLAT records — `{ type: 'text-delta', index, text }`, bracketed by text_start
+ * / text_end markers, plus a terminal finish. The nested
+ * `{ type: 'chunk', chunk: {...} }` and `{ type: 'text-chunks', texts: [...] }`
+ * forms belong to the accumulator's compact representation, so both are
+ * accepted. Guessing wrong here fails silently: the reply reads as empty and
+ * safeParseJson reports "Unexpected end of JSON input" long after a perfectly
+ * good model response arrived.
+ */
+export async function streamViaLlmService(llm, { provider, model, prompt, signal, timeoutMs = 300_000 }) {
+  const timeoutAc = new AbortController();
+  const timer = setTimeout(() => timeoutAc.abort(new Error('LLM call timeout')), timeoutMs);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
+  try {
+    const call = await llm.prepareCall({ provider, model, temperature: 0.4 }, combinedSignal);
+    const stream = call.stream({
+      ...call.config,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    });
+    let deltas = '';
+    let whole = '';
+    let sawText = false;
+    for await (const record of stream) {
+      if (record == null || typeof record !== 'object') continue;
+      if (record.type === 'text-delta') { deltas += record.text || ''; sawText = true; continue; }
+      if (record.type === 'text-chunks') { deltas += (record.texts || []).join(''); sawText = true; continue; }
+      if (record.type === 'text') { whole += record.text || ''; continue; }
+      if (record.type === 'chunk' && record.chunk) {
+        if (record.chunk.type === 'text-delta') { deltas += record.chunk.text || ''; sawText = true; }
+        else if (record.chunk.type === 'text') { whole += record.chunk.text || ''; }
+        continue;
+      }
+      if (record.type === 'finish') {
+        const kind = record.reason?.kind;
+        if (kind === 'error' || kind === 'aborted') {
+          throw record.reason.failure || new Error(`LLM call ${kind}`);
+        }
+      }
+    }
+    // Prefer streamed deltas; a whole-text record is the fallback for adapters
+    // that emit none. Never emit both — that would duplicate the content.
+    const out = sawText ? deltas : whole;
+    if (!out.trim()) {
+      throw new Error(`LLM 通过 llm 服务返回了空内容 (provider=${provider}, model=${model})`);
+    }
+    return out;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot, deps = {} }) {
   const session = store.get(sessionId);
   if (!session) throw new Error(`scoreEssay: no such session ${sessionId}`);
@@ -106,10 +172,10 @@ export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot, deps 
   if (!question) throw new Error(`scoreEssay: question ${session.questionId} not found in bank`);
 
   const m = await resolveDefaultModel(deps);
-  const assetBase = `${m.baseUrl.replace(/\/v1\/?$/, '')}/ielts-examiner/asset`;
-  // Note: assetBase is only used to render image links inside the prompt; the
-  // browser actually fetches them from DSH's webServer, but LLM doesn't read
-  // them anyway — imageDescription is the LLM's job for Task 1.
+  // Only the standalone HTTP path knows the origin; the llm-service path gets
+  // the endpoint from the adapter. assetBase only decorates image links inside
+  // the prompt — the browser fetches them from DSH's own webServer route.
+  const assetBase = m.baseUrl ? `${m.baseUrl.replace(/\/v1\/?$/, '')}/ielts-examiner/asset` : '';
 
   const prompt = buildScorePrompt({
     dataRoot,
@@ -122,17 +188,21 @@ export async function scoreEssay({ store, sessionId, dataRoot, pluginRoot, deps 
     assetBase,
   });
 
-  logInfo('scoreEssay', `session=${sessionId} provider=${m.provider} model=${m.model} baseUrl=${m.baseUrl} essayLen=${session.essay.length}`);
+  logInfo('scoreEssay', `session=${sessionId} provider=${m.provider} model=${m.model} dispatch=${m.dispatch || 'http'} essayLen=${session.essay.length}`);
   const ac = new AbortController();
   let raw;
   try {
-    raw = await streamChatJson({
-      baseUrl: m.baseUrl,
-      apiKey: m.apiKey,
-      model: m.model,
-      prompt,
-      signal: ac.signal,
-    });
+    raw = m.dispatch === 'llm-service'
+      ? await streamViaLlmService(deps.llm, {
+        provider: m.provider, model: m.model, prompt, signal: ac.signal,
+      })
+      : await streamChatJson({
+        baseUrl: m.baseUrl,
+        apiKey: m.apiKey,
+        model: m.model,
+        prompt,
+        signal: ac.signal,
+      });
   } catch (e) {
     logError('scoreEssay.fetch', e);
     throw e;

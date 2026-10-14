@@ -22,7 +22,11 @@ async function call(endpoint, payload) {
   return data?.value;
 }
 
-export function createApi(_connection) {
+// No service dependencies: every call is a plain fetch to the host route
+// registered in src/host/apply.js. Takes no argument on purpose — the old
+// `connection` parameter was threaded through from apply() and never read,
+// while the client still declared `connection` as a hard inject.
+export function createApi() {
   return {
     listQuestions: () => call('questionBank.list'),
     listSessions: () => call('session.list'),

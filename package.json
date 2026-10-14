@@ -1,7 +1,7 @@
 {
   "name": "dsh-ielts-writing-examiner",
-  "version": "1.1.0",
-  "description": "A DeepSeek Harness Plugin as AI examiner of IELTS writing tasks with scoring and comments, convinient to review practiing histories. IELTS 写作练习与 AI 评分。题目 → 作文 → AI 评分 + 学习记录层。DSH web-profile plugin.",
+  "version": "1.2.0",
+  "description": "A DeepSeek Harness Plugin as AI examiner of IELTS writing tasks with scoring and comments, convinient to review practiing histories. IELTS 写作练习与 AI 评分。题目 → 作文 → AI 评分 + 学习记录层。DSH web-profile plugin. Entry lives in the shared dsh-app-dock.",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -15,7 +15,7 @@
     "assets",
     "prompts",
     "README.md",
-    "README.zh.md"
+    "README.zh-cn.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -34,20 +34,27 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-ui-conversation"
       ],
       "platform": "web"
     }
   },
+  "dependencies": {
+    "dsh-app-dock": "^0.1.5"
+  },
   "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "peerDependenciesMeta": {
-    "react": { "optional": true },
-    "react-dom": { "optional": true }
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

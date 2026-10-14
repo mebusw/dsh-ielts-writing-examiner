@@ -1,8 +1,14 @@
-# dsh-ielts-examiner bundle layer.
+# dsh-ielts-writing-examiner bundle layer.
 #
 # Inserted when a DSH web profile lists this package in dsh.profile.bundles.
-# Mounts host + client halves; same shape as dsh-pictor and pomasa-studio.
+# Mounts host + client halves; same shape as dsh-pictor and dsh-app-dock.
+#
+# `name` is the module specifier the Loader imports — it must equal the npm
+# package name exactly. It said "dsh-ielts-examiner" here after the package was
+# renamed; that name was unpublished from npm on 2026-09-08, so the row became
+# unresolvable and neither half mounted (no boot entry, no RPC route, no entry
+# button). Keep `name` and `id` in lockstep with package.json#name.
 
 - insert:
-    - id: dsh-ielts-examiner
-      name: dsh-ielts-examiner
+    - id: dsh-ielts-writing-examiner
+      name: 'dsh-ielts-writing-examiner'

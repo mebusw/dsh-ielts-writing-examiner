@@ -1,18 +1,16 @@
 // default-model.js
 //
-// Resolves the LLM config for one scoring call. Two paths:
+// Resolves which model one scoring call uses.
 //
-//   1. ctx-injected (canonical when running under DSH runtime):
-//      - ctx.agentDefaultModel.currentSelection() → { provider, model }
-//      - ctx.credentials.resolve(ref)             → api key
-//      Provider "deepseek-official" → baseURL https://api.deepseek.com/v1
+//   1. Runtime (canonical on DSH 0.2.x): read {provider, model} from the
+//      agentDefaultModel service and dispatch through the `llm` service, which
+//      owns endpoint + credential resolution. No provider table involved.
+//   2. Standalone (verify.mjs / plain Node): fall back to a hardcoded provider
+//      table plus ~/.dsh/settings.yaml, and speak HTTP directly.
 //
-//   2. standalone (for verify.mjs / unit tests / non-DSH Node):
-//      - ~/.dsh/settings.yaml "agent-default-model:" block (pomasa pattern)
-//      - or env var fallback per provider
-//
-// Returns: { provider, model, baseUrl, apiKey }
-// Throws on failure with a clear message.
+// Returns: { provider, model, dispatch?: 'llm-service' } or
+//          { provider, model, baseUrl, apiKey }
+// Throws on failure with a message naming the actual gap.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -83,45 +81,60 @@ function readAgentDefaultModelFromYaml() {
 }
 
 /**
- * Resolve { provider, model, baseUrl, apiKey }.
+ * Resolve the model for one scoring call.
  *
- * @param {object} [deps] — injected services from DSH runtime
- * @param {object} [deps.agentDefaultModel] — service exposing currentSelection()
- * @param {object} [deps.credentials]      — service exposing resolve(ref)
+ * @param {object} [deps] — services from the DSH runtime
+ * @param {object} [deps.agentDefaultModel] — exposes currentSelection()
+ * @param {object} [deps.llm]               — the `llm` service; see below
+ * @param {object} [deps.credentials]       — exposes resolve(ref)
+ * @returns {Promise<{provider, model, dispatch?: 'llm-service', baseUrl?: string,
+ *   apiKey?: string}>} — when `dispatch` is 'llm-service' the caller must send
+ *   the prompt through `deps.llm.prepareCall(...)` and NOT build a URL itself.
  */
 export async function resolveDefaultModel(deps = {}) {
-  // Path 1: ctx-injected agentDefaultModel
-  if (deps.agentDefaultModel && typeof deps.agentDefaultModel.currentSelection === 'function') {
-    try {
-      const sel = deps.agentDefaultModel.currentSelection();
-      const provider = sel.provider;
-      const model = sel.model;
-      const entry = findProviderEntry(provider);
-      let apiKey = '';
-      if (deps.credentials && typeof deps.credentials.resolve === 'function') {
-        const r = await deps.credentials.resolve(entry.credentialRef);
-        apiKey = r?.value || '';
-      }
-      if (!apiKey && entry.envKey) apiKey = process.env[entry.envKey] || '';
-      if (!apiKey) {
-        throw new Error(
-          `runtime 已选中 provider=${provider}，但 ${entry.credentialRef} 未配置。` +
-          `请在 ~/.dsh/.credentials.yaml 的 refs.${entry.credentialRef} 写入密钥。`,
-        );
-      }
-      return {
-        provider,
-        model,
-        baseUrl: process.env.DEEPSEEK_BASE_URL || entry.baseUrl,
-        apiKey,
-      };
-    } catch (e) {
-      // Fall through to env-based path on errors.
-      console.warn('[dsh-ielts-examiner] agentDefaultModel path failed:', e?.message || e);
+  // Path 1 — canonical on Harness 0.2.x.
+  //
+  // A hand-rolled provider table can only ever be right for the providers it
+  // hardcodes. `@deepseek-ai/dsh-llm` contains no baseUrl at all: endpoint and
+  // credential resolution belong to the adapter (dsh-llm-pi-ai). So for any
+  // provider outside PROVIDER_DEFAULTS — `minimax-cn`, for instance — the old
+  // code silently fell through to the openai_compatible entry, which has an
+  // empty baseUrl/credentialRef, and scoring failed with
+  //   "runtime 已选中 provider=minimax-cn，但  未配置"
+  // Asking the runtime for the current selection and letting `llm` dispatch is
+  // the only provider-agnostic option; llm.js does the actual call.
+  const selection = typeof deps.agentDefaultModel?.currentSelection === 'function'
+    ? deps.agentDefaultModel.currentSelection()
+    : null;
+  if (selection?.provider && selection?.model) {
+    if (typeof deps.llm?.prepareCall === 'function') {
+      return { provider: selection.provider, model: selection.model, dispatch: 'llm-service' };
     }
+    const entry = findProviderEntry(selection.provider);
+    let apiKey = '';
+    if (typeof deps.credentials?.resolve === 'function') {
+      const r = await deps.credentials.resolve(entry.credentialRef);
+      apiKey = r?.value || '';
+    }
+    if (!apiKey && entry.envKey) apiKey = process.env[entry.envKey] || '';
+    if (apiKey && entry.baseUrl) {
+      return { provider: selection.provider, model: selection.model, baseUrl: entry.baseUrl, apiKey };
+    }
+    if (!entry.credentialRef) {
+      // The runtime picked a provider this table has no endpoint for, and the
+      // `llm` service is unavailable. Say so instead of blaming credentials.
+      throw new Error(
+        `已选中 provider=${selection.provider} / model=${selection.model}，但本插件没有该 provider 的 endpoint 配置，` +
+        `且运行时未提供 llm 服务。请在 ${process.env.DSH_HOME || join(homedir(), '.dsh')} 下补齐 provider 配置。`,
+      );
+    }
+    throw new Error(
+      `runtime 已选中 provider=${selection.provider}，但 ${entry.credentialRef} 未配置。` +
+      `请在 ~/.dsh/.credentials.yaml 的 refs.${entry.credentialRef} 写入密钥。`,
+    );
   }
 
-  // Path 2: env-based fallback (used for tests + when ctx is empty)
+  // Path 2: standalone HTTP fallback (verify.mjs / plain Node, no DSH runtime).
   const fromYaml = readAgentDefaultModelFromYaml();
   const candidates = [];
   if (fromYaml) candidates.push(fromYaml);

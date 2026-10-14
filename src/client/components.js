@@ -51,7 +51,14 @@ export function createComponents(h) {
       key, className: 'iw-select', value: value || '', onChange: (e) => onChange(e.target.value),
     },
       placeholder ? h('option', { key: 'ph', value: '' }, placeholder) : null,
-      ...options.map((o) => h('option', { key: o.value, value: o.value }, o.label)),
+      // `disabled` has to be forwarded: the question picker uses non-selectable
+      // group headers ("── Task 1 ──"). Dropping it turns those headers into
+      // real choices, and picking one sets an id that matches no question.
+      ...options.map((o) => h('option', {
+        key: o.value,
+        value: o.value,
+        disabled: o.disabled === true,
+      }, o.label)),
     );
   }
 

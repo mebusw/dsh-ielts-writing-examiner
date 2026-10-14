@@ -1,4 +1,4 @@
-// dsh-ielts-examiner host half.
+// dsh-ielts-writing-examiner host half.
 //
 // Mounts:
 //   - JSON RPC router at /ielts-examiner (loopback authority)
@@ -15,11 +15,13 @@
 //   session.pulse({id})                        -> {status, hasResult}
 //   session.clone({id})                        -> {id}
 //   session.delete({id})                       -> {ok, id}
+//   health                                     -> {ok, pluginRoot, dataRoot, time}
+//   diag(payload)                              -> {ok}  (append-only to diag.jsonl)
 //
 // v1 deliberately omits config.get/set/test (no LLM channel config in plugin —
 // DSH runtime decides) and session.exportPdf (PDF is pure client-side html2pdf.js).
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,8 +29,13 @@ import { createHash } from 'node:crypto';
 import { createSessionStore } from './session-store.js';
 import { loadBank, findById } from './question-bank.js';
 
-export const name = 'dsh-ielts-examiner';
-export const inject = ['connection', 'webServer', 'agentDefaultModel', 'credentials'];
+export const name = 'dsh-ielts-writing-examiner';
+// `connection` is deliberately absent: the only thing this half ever used it
+// for was the `connection.rpc.handle` channel, which is broken on 0.2.x (see
+// the note above the route registrations). Every request arrives over HTTP.
+// `llm` is what resolves endpoint + credentials for whichever provider the user
+// actually selected — this plugin must not assume deepseek, or anything else.
+export const inject = ['webServer', 'agentDefaultModel', 'llm', 'credentials'];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // After esbuild bundles src/host/* into lib/index.js, HERE is the lib/ dir.
@@ -39,7 +46,7 @@ const IMG_DIR = join(ASSETS_DIR, 'images-for-task1');
 const PROMPT_SRC = join(PLUGIN_ROOT, 'prompts', '雅思写作.compressed.prompt.md');
 
 function logError(scope, e) {
-  console.error(`[dsh-ielts-examiner] ${scope}:`, e?.stack || e);
+  console.error(`[dsh-ielts-writing-examiner] ${scope}:`, e?.stack || e);
 }
 
 function nowIso() {
@@ -99,9 +106,9 @@ function backfillCompletedAt(store) {
         n++;
       } catch {}
     }
-    if (n > 0) console.log(`[dsh-ielts-examiner] backfilled completedAt on ${n} sessions`);
+    if (n > 0) console.log(`[dsh-ielts-writing-examiner] backfilled completedAt on ${n} sessions`);
   } catch (e) {
-    console.error('[dsh-ielts-examiner] backfill migration failed:', e?.message || e);
+    console.error('[dsh-ielts-writing-examiner] backfill migration failed:', e?.message || e);
   }
 }
 
@@ -132,9 +139,9 @@ function backfillTask(store, pluginRoot) {
         n++;
       } catch {}
     }
-    if (n > 0) console.log(`[dsh-ielts-examiner] backfilled task on ${n} sessions`);
+    if (n > 0) console.log(`[dsh-ielts-writing-examiner] backfilled task on ${n} sessions`);
   } catch (e) {
-    console.error('[dsh-ielts-examiner] backfill task migration failed:', e?.message || e);
+    console.error('[dsh-ielts-writing-examiner] backfill task migration failed:', e?.message || e);
   }
 }
 
@@ -143,7 +150,7 @@ export function apply(ctx, config = {}) {
     return _applyInner(ctx, config);
   } catch (e) {
     // Surface the real error so the loader message isn't just "Reflect.has called on non-object".
-    console.error('[dsh-ielts-examiner] apply failed:', e?.stack || e);
+    console.error('[dsh-ielts-writing-examiner] apply failed:', e?.stack || e);
     throw e;
   }
 }
@@ -218,17 +225,20 @@ function _applyInner(ctx, config = {}) {
         // essay.txt exists (not "score in flight"). scoreEssay itself checks
         // for result.json and is idempotent. Always invoke so the LLM call
         // actually runs.
-        console.log(`[dsh-ielts-examiner] session.score fired id=${id} status=${s.status} deps.agentDefaultModel=${!!ctx.agentDefaultModel} deps.credentials=${!!ctx.credentials}`);
+        console.log(`[dsh-ielts-writing-examiner] session.score fired id=${id} status=${s.status} deps.agentDefaultModel=${!!ctx.agentDefaultModel} deps.llm=${!!ctx.llm} deps.credentials=${!!ctx.credentials}`);
         store.markRunning(id);
         const deps = {
           agentDefaultModel: ctx.agentDefaultModel || ctx.get?.('agentDefaultModel'),
+          // Without this, llm.js cannot resolve the endpoint for any provider
+          // outside its hardcoded table and scoring fails outright.
+          llm: ctx.llm || ctx.get?.('llm'),
           credentials: ctx.credentials || ctx.get?.('credentials'),
         };
         const { scoreEssay } = await import('./llm.js');
         scoreEssay({ store, sessionId: id, dataRoot, pluginRoot: PLUGIN_ROOT, deps })
-          .then(() => console.log(`[dsh-ielts-examiner] scoreEssay resolved for ${id}`))
+          .then(() => console.log(`[dsh-ielts-writing-examiner] scoreEssay resolved for ${id}`))
           .catch((e) => {
-            console.error(`[dsh-ielts-examiner] scoreEssay REJECTED for ${id}:`, e?.message || e);
+            console.error(`[dsh-ielts-writing-examiner] scoreEssay REJECTED for ${id}:`, e?.message || e);
             logError('scoreEssay', e);
             try { store.markFailed(id, e?.message || String(e)); } catch {}
           });
@@ -261,22 +271,38 @@ function _applyInner(ctx, config = {}) {
       case 'health': {
         return { ok: true, pluginRoot: PLUGIN_ROOT, dataRoot, time: nowIso() };
       }
+      // Client-side entry diagnostics. The single most common install failure
+      // is "the IELTS button never appeared", which has two very different
+      // causes (never registered vs. registered but not rendered). The browser
+      // half can't be inspected without DevTools, so append to a JSONL the
+      // user can just cat. Loopback-only, best-effort: a failure here must
+      // never break the UI, hence the try/catch that swallows everything.
+      case 'diag': {
+        try {
+          const line = JSON.stringify({ ts: nowIso(), ...(payload || {}) });
+          if (typeof line === 'string' && line.length < 4096) {
+            mkdirSync(dataRoot, { recursive: true });
+            appendFileSync(join(dataRoot, 'diag.jsonl'), `${line}\n`);
+          }
+        } catch { /* diagnostics are never worth a user-visible error */ }
+        return { ok: true };
+      }
       default:
-        throw new Error(`dsh-ielts-examiner: unknown endpoint ${endpoint}`);
+        throw new Error(`dsh-ielts-writing-examiner: unknown endpoint ${endpoint}`);
     }
   }
 
-  const connection = ctx.connection || ctx.get?.('connection');
-  if (connection && connection.rpc && typeof connection.rpc.handle === 'function') {
-    connection.rpc.handle('/ielts-examiner', async (endpoint, payload) => {
-      try {
-        return { ok: true, value: await handle(endpoint, payload || {}) };
-      } catch (e) {
-        logError(`rpc:${endpoint}`, e);
-        return { ok: false, error: { code: 'internal', message: String(e?.message || e), details: {} } };
-      }
-    }, { authority: 'loopback' });
-  }
+  // NOTE: the `connection.rpc.handle()` channel is deliberately NOT registered.
+  // On Harness 0.2.0-rc.2 that API is unusable from a plugin: it registers
+  // through *its own* fiber context (`owner = this.ctx`) and then reads
+  // `owner.webServer`, but dsh-client-connection declares inject
+  // ["credentials"] only — so the call always throws
+  // `cannot get property "webServer" without inject`. Because this module
+  // throws out of apply(), every route below was left unregistered and the
+  // plugin answered 405 on /ielts-examiner/rpc. Nothing read this channel
+  // anyway: src/client/api.js talks to the HTTP route below via fetch, and
+  // every working sibling (pictor, dsh-rag-qmd-wiki, dsh-app-dock) registers
+  // webServer routes the same way.
 
   // ───────────────────────── asset routes ─────────────────────────
   const ws = ctx.webServer || ctx.get?.('webServer');
