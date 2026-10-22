@@ -7,14 +7,33 @@
 
 import { renderMarkdown, renderMermaidIn } from './md.js';
 import { t } from './strings.js';
+import { createChat } from './chat.js';
 // import { exportNodeToPdf } from './export-pdf.js';  // 暂时隐藏，恢复时打开
 
 export function createPages(React, h, c) {
   const { useState, useEffect, useRef, useCallback } = React;
   const { iwCard, iwBtn, iwBadge, iwDot, iwField, iwSelect, iwTextarea, iwSpinner } = c;
+  // Bottom chat dock: state lives in Root (below), the dock itself is stateless.
+  const chatUi = createChat(React, h, c);
 
   function wordCount(text) {
     return String(text || '').trim() ? String(text).trim().split(/\s+/).length : 0;
+  }
+
+  // Unique chat key for one unsaved practice. Every "+ 新练习" gets a fresh
+  // key, so two unsaved practices never share a conversation. Host keys are
+  // validated against /^[a-z0-9][a-z0-9-]{0,39}$/.
+  function makeDraftKey() {
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let out = 'draft-';
+    try {
+      const bytes = new Uint8Array(10);
+      crypto.getRandomValues(bytes);
+      for (const b of bytes) out += alphabet[b % alphabet.length];
+    } catch {
+      for (let i = 0; i < 10; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    return out;
   }
 
   // timeAgo strings live inline in a tiny helper so the rest of the file
@@ -414,6 +433,34 @@ export function createPages(React, h, c) {
     const [lang, setLang] = useState('zh');
     const resultRef = useRef(null);
 
+    // ── bottom chat dock state ───────────────────────────────────
+    // ChatDock is stateless (so tests can render it directly); every piece of
+    // state lives here.
+    //
+    // chatKey is the persisted transcript key:
+    //   - a writing session id once the practice is saved,
+    //   - `draft-<random>` while an unsaved practice is open (a FRESH key per
+    //     "+ 新练习", so two new practices never share one conversation),
+    //   - the constant `draft` on the welcome screen (no practice yet).
+    // On submission the current draft key is migrated onto the new session id.
+    const [chatThread, setChatThread] = useState([]);
+    const [chatQuotes, setChatQuotes] = useState([]);
+    const [chatDraft, setChatDraft] = useState('');
+    const [chatStreaming, setChatStreaming] = useState(false);
+    const [chatExpanded, setChatExpanded] = useState(false);
+    const [chatError, setChatError] = useState(null);
+    const [draftKey, setDraftKey] = useState(makeDraftKey);
+    // Boot picks the session to open; don't load the welcome 'draft' thread in
+    // between, or its messages flash in the dock before the latest session wins.
+    const [booted, setBooted] = useState(false);
+    const chatAbort = useRef(null);        // AbortController of the live stream
+    const chatLoadSeq = useRef(0);         // guards against stale chat.get
+    const chatKey = activeId || (view === 'new' ? draftKey : 'draft');
+    // Read by async handlers after awaits, so a response from an old key can
+    // never write into the newly selected key's thread.
+    const chatKeyRef = useRef(chatKey);
+    chatKeyRef.current = chatKey;
+
     const T = t(lang);
 
     // Debug — remove after diagnostics
@@ -460,6 +507,10 @@ export function createPages(React, h, c) {
         } catch (e) {
           setError(T.initError(e?.message || e));
           setView('empty');
+        } finally {
+          // Only now is the initial chat key meaningful (latest session vs.
+          // welcome draft); the transcript effect waits for this.
+          setBooted(true);
         }
       })();
     }, []);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -487,6 +538,38 @@ export function createPages(React, h, c) {
       }
     }, [activeId, active?.status, view]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Load the saved thread whenever the chat key changes (draft ↔ session).
+    // A key switch also aborts any in-flight stream, drops pending quotes and
+    // clears the previous error and typed-but-unsent draft, so no conversation
+    // text can leak from one writing session into another.
+    useEffect(() => {
+      if (!booted) return; // boot decides the first real key
+      const key = chatKey;
+      const seq = ++chatLoadSeq.current;
+      if (chatAbort.current) {
+        try { chatAbort.current.abort(); } catch { /* ignore */ }
+        chatAbort.current = null;
+      }
+      setChatStreaming(false);
+      setChatError(null);
+      setChatQuotes([]);
+      setChatDraft('');
+      // Drop the previous key's thread right away so a fast score/clear click
+      // can never act on stale history while chat.get is in flight.
+      setChatThread([]);
+      (async () => {
+        try {
+          const res = await api.chatGet(key);
+          if (chatLoadSeq.current !== seq) return; // a newer key won
+          setChatThread(Array.isArray(res?.messages) ? res.messages : []);
+        } catch (e) {
+          if (chatLoadSeq.current !== seq) return;
+          console.warn('[iw] chat load failed', e);
+          setChatThread([]);
+        }
+      })();
+    }, [chatKey, booted]);
+
     async function loadActive(id, forceResult = false) {
       try {
         const s = await api.getSession(id);
@@ -509,6 +592,10 @@ export function createPages(React, h, c) {
       setEssay('');
       setSelectedQ('');
       setError(null);
+      // A brand-new practice gets its own chat thread: rotate the draft key so
+      // the dock starts empty instead of replaying the previous new-practice
+      // conversation. The thread migrates to the session on first submission.
+      setDraftKey(makeDraftKey());
       setView('new');
     }
 
@@ -566,6 +653,16 @@ export function createPages(React, h, c) {
         if (!id) {
           const { id: newId } = await api.createSession(selectedQ);
           id = newId;
+          // This unsaved practice's chat lives under its unique draft key; move
+          // it onto the new session before switching activeId, or the user
+          // loses the thread. Best-effort: a failed migration must not break
+          // scoring. Each practice started from "+ 新练习" has its own key, so
+          // the conversation never leaks into another session.
+          const draftThreadKey = chatKey;
+          if (chatThread.length) {
+            try { await api.chatMigrate(draftThreadKey, id); }
+            catch (e) { console.warn('[iw] chat migrate failed', e); }
+          }
           setActiveId(id);
           await api.updateEssay(id, essay);
         } else {
@@ -576,6 +673,149 @@ export function createPages(React, h, c) {
         await loadActive(id, true);
       } catch (e) {
         setError(T.scoreError(e?.message || e));
+      }
+    }
+
+    // ── bottom chat dock handlers ───────────────────────────────
+    // The question the model should see: the active session's question, else
+    // the one picked in the new-practice view (both screens can host chatting).
+    function chatQuestionForContext() {
+      const qid = (active && active.questionId) || selectedQ;
+      if (!qid) return null;
+      return questions.find((q) => q && q.id === qid) || null;
+    }
+
+    // Any selection anchored in the main pane becomes a removable quote chip.
+    // Mouse-up and Shift+arrow key-up both funnel through here. Nav text and
+    // form fields are ignored on purpose.
+    function captureChatSelection() {
+      try {
+        if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return;
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+        const text = String(sel.toString() || '');
+        if (!text.trim()) return;
+        let node = sel.anchorNode;
+        if (node && node.nodeType === 3) node = node.parentElement;
+        if (!node || typeof node.closest !== 'function') return;
+        if (!node.closest('.iw-main')) return;               // main pane only
+        if (node.closest('.iw-chat')) return;                // never the dock
+        if (node.closest('input, textarea, select')) return; // never a form field
+        const quote = chatUi.normalizeQuote(text);
+        if (!quote) return;
+        setChatQuotes((prev) => chatUi.mergeQuotes(prev, quote));
+        setChatExpanded(true);
+      } catch { /* selection APIs are best-effort */ }
+    }
+
+    function handleChatToggleExpanded() { setChatExpanded((v) => !v); }
+    function handleChatDraftChange(v) { setChatDraft(String(v == null ? '' : v)); }
+    function handleChatRemoveQuote(i) { setChatQuotes((prev) => prev.filter((_, j) => j !== i)); }
+    function handleChatClearQuotes() { setChatQuotes([]); }
+
+    function handleChatStop() {
+      const ctrl = chatAbort.current;
+      if (ctrl) { try { ctrl.abort(); } catch { /* ignore */ } }
+    }
+
+    async function handleChatClear() {
+      if (typeof confirm === 'function' && !confirm(T.chatClearConfirm)) return;
+      const key = chatKey;
+      try {
+        await api.chatClear(key);
+        if (chatKeyRef.current !== key) return;
+        if (chatAbort.current) {
+          try { chatAbort.current.abort(); } catch { /* ignore */ }
+          chatAbort.current = null;
+        }
+        setChatThread([]);
+        setChatError(null);
+        setChatStreaming(false);
+      } catch (e) {
+        if (chatKeyRef.current === key) setChatError(e?.message || String(e || 'chat clear failed'));
+      }
+    }
+
+    async function handleChatSend() {
+      const text = String(chatDraft || '').trim();
+      if (!text || chatStreaming) return;
+      const sendKey = chatKey;
+      const alive = () => chatKeyRef.current === sendKey;
+      const quotes = chatQuotes.slice(0, 3);
+      const history = chatUi.messagesForRequest(chatThread);
+      const context = chatUi.buildChatContext({
+        view, active, question: chatQuestionForContext(), essay,
+      });
+      // Optimistic bubbles: the user turn lands immediately and the assistant
+      // bubble fills from onDelta (so Stop keeps the partial text).
+      setChatThread((prev) => [
+        ...prev,
+        { role: 'user', content: text, quotes: quotes.length ? quotes : undefined, ts: Date.now() },
+        { role: 'assistant', content: '' },
+      ]);
+      setChatDraft('');
+      setChatQuotes([]);
+      setChatError(null);
+      setChatStreaming(true);
+      setChatExpanded(true);
+      let ctrl = null;
+      try { ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null; }
+      catch { ctrl = null; }
+      chatAbort.current = ctrl;
+      try {
+        const full = await api.streamChat({
+          key: sendKey,
+          lang,
+          text,
+          quotes,
+          history,
+          context,
+          signal: ctrl ? ctrl.signal : undefined,
+          onDelta: (delta) => {
+            if (!delta || !alive()) return;
+            setChatThread((prev) => {
+              const next = prev.slice();
+              for (let i = next.length - 1; i >= 0; i--) {
+                if (next[i] && next[i].role === 'assistant') {
+                  next[i] = { ...next[i], content: String(next[i].content || '') + delta, ts: Date.now() };
+                  break;
+                }
+              }
+              return next;
+            });
+          },
+        });
+        // Success: the host sends the authoritative full reply on `done`.
+        if (alive() && typeof full === 'string') {
+          setChatThread((prev) => {
+            const next = prev.slice();
+            for (let i = next.length - 1; i >= 0; i--) {
+              if (next[i] && next[i].role === 'assistant') {
+                next[i] = { ...next[i], content: full || next[i].content, ts: Date.now() };
+                break;
+              }
+            }
+            return next;
+          });
+        }
+      } catch (e) {
+        if (e && e.name === 'AbortError') {
+          // Stopped / session switched: keep whatever text already streamed.
+        } else if (alive()) {
+          setChatError(e?.message || String(e || 'chat failed'));
+          // Drop the placeholder bubble; the error row explains the failure.
+          setChatThread((prev) => {
+            const next = prev.slice();
+            const last = next[next.length - 1];
+            if (last && last.role === 'assistant' && !String(last.content || '').trim()) next.pop();
+            return next;
+          });
+        }
+      } finally {
+        if (chatAbort.current === ctrl) {
+          chatAbort.current = null;
+          setChatStreaming(false);
+        }
       }
     }
 
@@ -632,13 +872,39 @@ export function createPages(React, h, c) {
         h('div', { style: { fontWeight: 600 } }, T.headerTitle),
         iwBtn({ ghost: true, tiny: true, onClick: onClose }, T.closeBtn),
       ),
-      h('div', { className: 'iw-workbench' },
+      h('div', {
+        className: 'iw-workbench',
+        onMouseUp: captureChatSelection,
+        onKeyUp: captureChatSelection,
+      },
         h(Nav, {
           sessions, activeId, onSelect: handleSelectSession,
           onNew: handleNew, onClone: handleClone, onDelete: handleDelete,
           onLang: setLang, lang,
         }),
-        renderMain(),
+        // Right-hand column: the scrolling screen content plus the bottom chat
+        // dock. Keeping the dock here (not under the whole workbench) means it
+        // sits at the bottom of the RIGHT pane only; the sidebar keeps its own
+        // full height and its language/actions footer.
+        h('div', { className: 'iw-main-col' },
+          renderMain(),
+          h(chatUi.ChatDock, {
+            lang,
+            messages: chatThread,
+            quotes: chatQuotes,
+            draft: chatDraft,
+            streaming: chatStreaming,
+            error: chatError,
+            expanded: chatExpanded,
+            onDraftChange: handleChatDraftChange,
+            onSend: handleChatSend,
+            onStop: handleChatStop,
+            onToggleExpanded: handleChatToggleExpanded,
+            onRemoveQuote: handleChatRemoveQuote,
+            onClearQuotes: handleChatClearQuotes,
+            onClearThread: handleChatClear,
+          }),
+        ),
       ),
     );
   }

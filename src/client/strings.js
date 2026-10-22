@@ -89,6 +89,23 @@ const STRINGS = {
     summaryMeta: (title, ago, wc) => `${title} · ${ago} · ${wc} 词`,
     summaryTruncate: (s) => s + '…',
 
+    // bottom chat dock (generic copy only — never list sample questions)
+    chatTitle: '对话',
+    chatHint: '随时提问；选中批改内容可引用提问。',
+    chatPlaceholder: '问点什么…',
+    chatSend: '发送',
+    chatStop: '停止',
+    chatThinking: '思考中',
+    chatEmpty: '还没有对话。',
+    chatQuotesLabel: '引用',
+    chatQuotesClear: '清空引用',
+    chatQuoteRemove: '移除引用',
+    chatClear: '清空对话',
+    chatClearConfirm: '确认清空这次练习的对话？',
+    chatExpand: '展开对话',
+    chatCollapse: '收起对话',
+    chatError: (e) => '对话出错：' + e,
+
     // errors
     initError: (e) => '初始化失败：' + e,
     loadSessionError: (e) => '读取 session 失败：' + e,
@@ -175,6 +192,23 @@ const STRINGS = {
     summaryHint: 'Scroll down to see the full correction',
     summaryMeta: (title, ago, wc) => `${title} · ${ago} · ${wc} words`,
     summaryTruncate: (s) => s + '…',
+
+    // bottom chat dock (generic copy only — never list sample questions)
+    chatTitle: 'Chat',
+    chatHint: 'Ask anytime; select text in the correction to quote it.',
+    chatPlaceholder: 'Ask something…',
+    chatSend: 'Send',
+    chatStop: 'Stop',
+    chatThinking: 'Thinking',
+    chatEmpty: 'No messages yet.',
+    chatQuotesLabel: 'Quotes',
+    chatQuotesClear: 'Clear quotes',
+    chatQuoteRemove: 'Remove quote',
+    chatClear: 'Clear chat',
+    chatClearConfirm: 'Clear this practice chat?',
+    chatExpand: 'Expand chat',
+    chatCollapse: 'Collapse chat',
+    chatError: (e) => 'Chat error: ' + e,
 
     // errors
     initError: (e) => 'Initialization failed: ' + e,

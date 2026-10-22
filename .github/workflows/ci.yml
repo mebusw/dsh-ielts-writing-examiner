@@ -1,0 +1,48 @@
+# Gate every change behind the offline verification suite.
+#
+# This is not ceremony: verify.mjs is what caught the regressions behind
+# every 0.2.x failure this plugin hit — the cordis.patch.yml name drifting
+# out of sync with package.json, the removal of the broken
+# connection.rpc.handle channel, and the llm stream record shape. All three
+# shipped once because the tests had been written against assumptions rather
+# than against the real runtime.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22 covers structuredClone + AbortSignal.any, which src/host/llm.js
+          # relies on for the combined timeout signal.
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # `verify` runs scripts/build.mjs before verify.mjs. Building first is not
+      # optional: lib/ is gitignored, and verify.mjs imports lib/index.js and
+      # lib/client.js — the same two files that ship in the npm tarball.
+      - name: Build and verify
+        run: pnpm verify
+
+      - name: Pack dry run
+        run: npm pack --dry-run

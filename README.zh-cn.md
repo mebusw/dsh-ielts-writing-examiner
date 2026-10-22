@@ -7,6 +7,11 @@ profile 里的 IELTS 写作练习 + AI 评分插件。
 外加思路解析、语法批改、用词建议和同题范文。每次练习都作为一条
 session 保存到侧栏，可以回看、克隆或删除。
 
+所有页面的**右侧工作区底部**都有一个常驻的 chatbox（不占左侧会话栏），
+任何阶段都能直接问 AI 考官。在批改结果页用鼠标选中任意文字，底部
+chatbox 会显示这段引用；引用文字会作为对话上下文发给模型，追问始终
+锚定在你正在看的内容上。对话按练习（session）分别保存。
+
 模型完全跟 DSH runtime 当前默认模型走，插件里没有渠道切换也没有
 API key UI —— 模型配置在 host 那边改。
 
@@ -95,13 +100,21 @@ pnpm verify
 `~/.dsh/profiles/web` 里执行 `pnpm add file:<repo>`。脚本退出后，
 刷新一下 web profile 即可。
 
+浏览器侧的检查用 `pnpm test:ui`：它在独立无头 Chromium 里加载 client
+bundle，mock 宿主 RPC 和 SSE 对话流，截图写到 `e2e/artifacts/`。需要
+Playwright 的 Chromium；如果没有，用 `CHAT_UI_CHROMIUM` 指向一个
+Chrome/Chromium 可执行文件即可。
+
 ## 适配的 DSH 版本
 
-以 **Harness 0.2.0-rc.2** 为适配目标：
+以 **Harness 0.2.x** 为适配目标（在 0.2.1-rc.2 上验证）：
 
 - 宿主语言读 `ctx.get('locale')`（0.2.x 的 LocaleRuntime，带
   `subscribe`）；旧的 `ctx.get('lang')` 钩子保留为兜底。
 - 应用坞按 0.2.x 的加载顺序仲裁：坞优先，缺席才自持 footer。
+- 对话流会给历史 assistant 消息补
+  `source: { kind: 'model', provider, model }`，这是 0.2.1 的 `llm`
+  适配器（`dsh-llm-deepseek` / `dsh-llm-pi-ai`）要求的结构。
 
 ## 排障
 
@@ -132,6 +145,32 @@ tail -n 5 ~/.ielts-examiner/diag.jsonl
    文之间切换 —— 侧栏标题、底部计数、卡片标题、按钮文案、时间
    表达、错误提示全都跟着切；AI 评分本身的输出语言由模型决定
    （prompt 里两种语言都能用）。
+7. 每个页面的**右侧工作区底部**都有 chatbox（左侧会话栏保持通高）。
+   输入问题后按 **Enter** 发送（Shift+Enter 换行），回复会流式显示。
+   对话按练习保存，重新打开该练习会自动恢复；每次 **+ 新练习** 都是
+   独立的空对话，切换练习不会互相串内容；流式输出期间发送按钮会变成
+   停止按钮。
+8. 在批改结果页用鼠标选中任意文字，底部 chatbox 的「引用」区会出现
+   对应的引用标签；提问时这段文字会作为上下文一起发给模型。点标签
+   上的 × 可以移除；最多累积 3 条引用，发送后自动清空。chatbox 在
+   所有页面都在，但主内容区的任意文字都可以被引用。
+
+### 对话框机制
+
+- host 端和评分一样走 DSH runtime 当前默认模型，通过 `llm` 服务
+  流式返回（`POST /ielts-examiner/chat`，`text/event-stream`）；
+  脱离 DSH 运行时会退化为 OpenAI 兼容的 HTTP 流。
+- 每一轮都会把当前页面、题目、作文、批改摘要（都有长度上限）带给
+  模型，所以回答始终基于正在讨论的这篇作文。
+- 每次练习拥有自己的对话：切换侧栏 session 只会加载那次练习的对话。
+  每次点 **+ 新练习** 都会生成独立的空对话 key（`draft-<id>`），未提交
+  的练习之间不会共享聊天；点提交评分时这段对话会迁移到新建的 session。
+  欢迎页使用单独的 `draft` 线程。
+- 对话保存在 `~/.ielts-examiner/chats/<session-id>.json`（未提交的练习
+  是 `draft-<id>.json`，欢迎页是 `draft.json`）。删除练习会一并删除
+  对应对话；被放弃的未提交对话会在 7 天后清理。
+- 回复失败时会保留提问并就地显示错误；已经流出的部分内容会留在对话
+  里，直到刷新页面。
 
 ## 数据位置
 
@@ -142,6 +181,7 @@ tail -n 5 ~/.ielts-examiner/diag.jsonl
 │   ├── meta.json                  # { id, questionId, status, wordCount, … }
 │   ├── essay.txt                  # 原始作文
 │   └── result.json                # 完整 LLM 输出（JSON.parse 后的对象）
+├── chats/<key>.json               # 对话记录：<sid>、未提交练习 draft-<id>、欢迎页 draft
 └── prompts/
     └── 雅思写作.compressed.prompt.md   # 首次启动时从 bundle 拷过来
 ```
@@ -178,16 +218,20 @@ reload profile 即可。
 - **同题范文**：高分范文卡。
 - **中 / EN UI 切换**：侧栏底部按钮，所有可见文案（侧栏标题、
   底部计数、卡片标题、按钮、时间、错误）都跟着切。
-- **克隆 / 删除**：侧栏行级操作。
+- **每个页面右侧工作区底部的 chatbox**（左侧会话栏保持通高）：
+  流式回复、按练习保存对话、Enter 发送、可停止。
+- **选中即引用**：主内容区的选中文字会变成 chatbox 里可删除的引用
+  标签，并作为对话上下文发送。
+- **克隆 / 删除**：侧栏行级操作；删除练习会一并删除对应对话。
 
 ## 脚本
 
 | 脚本           | 作用                                                  |
 | -------------- | ----------------------------------------------------- |
 | `pnpm build`   | 把 host (esbuild) + client (concat) 打到 `lib/`。     |
-| `pnpm verify`  | 构建后跑离线 smoke（RPC、asset、prompt）。            |
+| `pnpm verify`  | 构建后跑离线 smoke（RPC、asset、prompt、chat）。       |
 | `pnpm reinstall` | 重新构建并安装进 `~/.dsh/profiles/web`。             |
-| `pnpm test:e2e` | Playwright e2e（需要 web profile 在跑）。             |
+| `pnpm test:ui` | 无头 chat UI 检查（独立 harness，不需要起服务）。      |
 | `pnpm pack:dry` | 看 `npm pack` 会发布什么。                           |
 
 ## 文件结构
@@ -195,19 +239,23 @@ reload profile 即可。
 ```
 src/
 ├── host/                  # Node 端：注册 RPC、asset、prompt、调 LLM
-│   ├── apply.js           # apply(ctx, {dataDir}) → 挂载路由
+│   ├── apply.js           # apply(ctx, {dataDir}) → 挂载路由（含 chat SSE）
 │   ├── session-store.js   # 对 ~/.ielts-examiner/sessions/<id>/ 做 CRUD
-│   ├── llm.js             # 调 DSH runtime 当前默认模型
+│   ├── chat-store.js      # 按练习保存对话到 ~/.ielts-examiner/chats/
+│   ├── chat-prompt.js     # chat 的 system prompt + provider 无关消息历史
+│   ├── chat.js            # 一轮流式对话（走 runtime 默认模型）
+│   ├── llm.js             # 调 DSH runtime 当前默认模型（评分 + 流式 delta）
 │   ├── prompt.js          # 首次启动时把内置 prompt 拷到用户目录
 │   ├── default-model.js   # 从 host 配置里读 provider/model
 │   └── question-bank.js   # 读 assets/雅思真题.json
 ├── client/                # 浏览器端：React UI（function components）
 │   ├── index.js           # 入口仲裁（应用坞优先 / footer 兜底）+ overlay 面板
 │   ├── pages.js           # Root, Nav, NewPractice, Result, Loading, SessionDetail
+│   ├── chat.js            # 底部 chatbox + 引用标签 + SSE / 上下文 helper
 │   ├── components.js      # iwCard / iwBtn / iwBadge / …
 │   ├── strings.js         # 中英 i18n 表；`t(lang)` 查表
 │   ├── styles.js          # scoped CSS 模板字符串
-│   ├── api.js             # /ielts-examiner/rpc 上的 RPC 客户端
+│   ├── api.js             # /ielts-examiner/rpc RPC + chat SSE 客户端
 │   ├── md.js              # markdown + mermaid 渲染
 │   └── export-pdf.js      # （当前关闭）html2pdf 导出
 └── shared/

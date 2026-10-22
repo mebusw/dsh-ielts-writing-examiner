@@ -13,6 +13,7 @@
 
 import { STYLE } from './styles.js';
 import { createApi } from './api.js';
+import { createChat } from './chat.js';
 import { createComponents } from './components.js';
 import { createPages } from './pages.js';
 import { t } from './strings.js';
@@ -303,6 +304,10 @@ const _test = {
   examinerDiag,
   createComponents,
   createPages,
+  createChat,
+  // Exposed so the offline harness can exercise api.streamChat's SSE parsing
+  // with a mocked fetch/ReadableStream (the app itself builds it in apply()).
+  createApi,
   DOCK_ID,
   ENTRY_GRACE_MS,
 };

@@ -11,3 +11,9 @@ e2e/.auth/
 
 # pnpm is the package manager for this repo; this is a stale npm artifact.
 package-lock.json
+
+# Agent-team scaffolding (temporary)
+.team/
+e2e/artifacts/
+e2e/.cache/
+.verify-data/

@@ -15,8 +15,16 @@
 //   session.pulse({id})                        -> {status, hasResult}
 //   session.clone({id})                        -> {id}
 //   session.delete({id})                       -> {ok, id}
+//   chat.get({key})                            -> {key, messages: DisplayMessage[]}
+//   chat.clear({key})                          -> {ok, key}
+//   chat.migrate({from, to})                   -> {ok, migrated}
 //   health                                     -> {ok, pluginRoot, dataRoot, time}
 //   diag(payload)                              -> {ok}  (append-only to diag.jsonl)
+//
+// HTTP route (streaming, not RPC):
+//   POST /ielts-examiner/chat  {key,lang,text,quotes,history,context}
+//     -> text/event-stream: data: {"delta":"…"} / data: {"done":true,"message":{…}}
+//                           / data: {"error":"…"}
 //
 // v1 deliberately omits config.get/set/test (no LLM channel config in plugin —
 // DSH runtime decides) and session.exportPdf (PDF is pure client-side html2pdf.js).
@@ -28,6 +36,16 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { createSessionStore } from './session-store.js';
 import { loadBank, findById } from './question-bank.js';
+import { createChatStore } from './chat-store.js';
+import {
+  buildChatSystemPrompt,
+  buildChatMessages,
+  sanitizeKey,
+  sanitizeUserText,
+  sanitizeQuotes,
+  sanitizeHistory,
+} from './chat-prompt.js';
+import { chatStreamDeltas } from './chat.js';
 
 export const name = 'dsh-ielts-writing-examiner';
 // `connection` is deliberately absent: the only thing this half ever used it
@@ -73,6 +91,29 @@ function isSafeImageName(name) {
     && !name.includes('..')
     && !name.includes('\0')
     && /^[A-Za-z0-9._\-一-龥 ()（）]+$/.test(name);
+}
+
+/** Read and JSON-parse a request body, refusing anything over `limit` bytes. */
+async function readJsonBody(req, limit) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error(`request body too large (max ${limit} bytes)`);
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function sendJson(res, status, body, extraHeaders) {
+  if (res.writableEnded) return;
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    ...(extraHeaders || {}),
+  });
+  res.end(JSON.stringify(body));
 }
 
 /**
@@ -162,10 +203,23 @@ function _applyInner(ctx, config = {}) {
 
   const store = createSessionStore(dataRoot);
   store.ensure();
+  const chatStore = createChatStore(dataRoot);
+  try {
+    const pruned = chatStore.pruneDrafts();
+    if (pruned > 0) console.log(`[dsh-ielts-writing-examiner] pruned ${pruned} abandoned draft chat(s)`);
+  } catch { /* never block boot on chat housekeeping */ }
   store.seedPrompt({ src: PROMPT_SRC, destName: '雅思写作.compressed.prompt.md' });
   loadBank(PLUGIN_ROOT); // prime cache
   backfillCompletedAt(store);
   backfillTask(store, PLUGIN_ROOT);
+
+  // Services the model calls need. `llm` owns endpoint/credential resolution;
+  // without it only the standalone HTTP path exists. Mirrors session.score.
+  const runtimeDeps = () => ({
+    agentDefaultModel: ctx.agentDefaultModel || ctx.get?.('agentDefaultModel'),
+    llm: ctx.llm || ctx.get?.('llm'),
+    credentials: ctx.credentials || ctx.get?.('credentials'),
+  });
 
   // ───────────────────────── RPC router ─────────────────────────
   async function handle(endpoint, payload) {
@@ -266,7 +320,25 @@ function _applyInner(ctx, config = {}) {
       case 'session.delete': {
         const { id } = payload || {};
         if (!id) throw new Error('session.delete: id required');
-        return store.remove(id);
+        const removed = store.remove(id);
+        // The chat thread belongs to the practice; deleting the practice must
+        // not leave an orphaned chat file behind.
+        try { chatStore.remove(id); } catch { /* never fail the delete for this */ }
+        return removed;
+      }
+      // ── chat-box transcript (see /ielts-examiner/chat for streaming) ──
+      case 'chat.get': {
+        const key = sanitizeKey(payload?.key);
+        return chatStore.get(key);
+      }
+      case 'chat.clear': {
+        const key = sanitizeKey(payload?.key);
+        return chatStore.clear(key);
+      }
+      case 'chat.migrate': {
+        const from = sanitizeKey(payload?.from);
+        const to = sanitizeKey(payload?.to);
+        return chatStore.migrate(from, to);
       }
       case 'health': {
         return { ok: true, pluginRoot: PLUGIN_ROOT, dataRoot, time: nowIso() };
@@ -289,6 +361,104 @@ function _applyInner(ctx, config = {}) {
       }
       default:
         throw new Error(`dsh-ielts-writing-examiner: unknown endpoint ${endpoint}`);
+    }
+  }
+
+  // ───────────────────── chat streaming route ─────────────────────
+  // The chat box streams model output to the browser. The JSON-RPC route cannot
+  // stream, so this is a plain POST that owns a text/event-stream response.
+  const SSE_HEADERS = {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    'connection': 'keep-alive',
+    'x-accel-buffering': 'no',
+  };
+
+  async function handleChatStream(req, res) {
+    if ((req.method || 'POST').toUpperCase() !== 'POST') {
+      sendJson(res, 405, { ok: false, error: { message: 'method not allowed' } });
+      return;
+    }
+    // Validate before any stream bytes so malformed requests get a clean HTTP
+    // error instead of a half-open stream.
+    let parsed;
+    try {
+      const body = await readJsonBody(req, 2 * 1024 * 1024);
+      const key = sanitizeKey(body?.key);
+      const text = sanitizeUserText(body?.text);
+      parsed = {
+        key,
+        text,
+        quotes: sanitizeQuotes(body?.quotes),
+        history: sanitizeHistory(body?.history),
+        context: body?.context || {},
+        lang: body?.lang === 'en' ? 'en' : 'zh',
+      };
+    } catch (e) {
+      sendJson(res, 400, { ok: false, error: { message: String(e?.message || e) } });
+      return;
+    }
+
+    res.writeHead(200, SSE_HEADERS);
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    let closed = false;
+    const writeEvent = (obj) => {
+      if (closed || res.writableEnded) return;
+      try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* socket gone */ }
+    };
+    const ac = new AbortController();
+    const onClose = () => {
+      if (closed) return;
+      closed = true;
+      ac.abort(new Error('client disconnected'));
+    };
+    if (typeof res.on === 'function') res.on('close', onClose);
+    // A slow first token must not look like a dead connection to a proxy; the
+    // client parser ignores comment frames (`: ping`).
+    const ping = setInterval(() => {
+      if (!closed && !res.writableEnded) {
+        try { res.write(': ping\n\n'); } catch { /* socket gone */ }
+      }
+    }, 15000);
+
+    const userMessage = { role: 'user', content: parsed.text, quotes: parsed.quotes, ts: Date.now() };
+    let full = '';
+    try {
+      const system = buildChatSystemPrompt({ lang: parsed.lang, context: parsed.context });
+      const messages = buildChatMessages({
+        history: parsed.history,
+        text: parsed.text,
+        quotes: parsed.quotes,
+        lang: parsed.lang,
+      });
+      for await (const delta of chatStreamDeltas({
+        deps: runtimeDeps(), system, messages, signal: ac.signal,
+      })) {
+        full += delta;
+        writeEvent({ delta });
+      }
+      if (!full.trim()) throw new Error('LLM 返回了空内容');
+      const assistantMessage = { role: 'assistant', content: full, ts: Date.now() };
+      try {
+        chatStore.save(parsed.key, [...parsed.history, userMessage, assistantMessage]);
+      } catch (e) {
+        logError('chat.save', e);
+      }
+      writeEvent({ done: true, message: assistantMessage });
+    } catch (e) {
+      logError('chat.stream', e);
+      // Keep the question even when the answer failed, so a reload does not
+      // silently lose what the student asked.
+      try { chatStore.save(parsed.key, [...parsed.history, userMessage]); } catch { /* ignore */ }
+      if (!ac.signal.aborted) writeEvent({ error: String(e?.message || e) });
+    } finally {
+      clearInterval(ping);
+      closed = true;
+      try { if (typeof res.off === 'function') res.off('close', onClose); } catch { /* ignore */ }
+      if (!res.writableEnded) {
+        try { res.end(); } catch { /* ignore */ }
+      }
     }
   }
 
@@ -327,6 +497,13 @@ function _applyInner(ctx, config = {}) {
           res.end(JSON.stringify({ ok: false, error: { code: 'internal', message: String(e?.message || e) } }));
         }
       },
+    });
+
+    // /ielts-examiner/chat — POST, streams the chat-box reply as SSE.
+    ws.register({
+      kind: 'exact',
+      path: '/ielts-examiner/chat',
+      handler: handleChatStream,
     });
 
     const IMG_CACHE = { 'cache-control': 'public, max-age=3600' };

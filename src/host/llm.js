@@ -118,43 +118,188 @@ function safeParseJson(text) {
  * safeParseJson reports "Unexpected end of JSON input" long after a perfectly
  * good model response arrived.
  */
-export async function streamViaLlmService(llm, { provider, model, prompt, signal, timeoutMs = 300_000 }) {
+/**
+ * Classify one adapter record. Returns `{ delta }`, `{ whole }` or null.
+ *
+ * Record shapes vary by adapter. The raw adapter stream (dsh-llm-pi-ai) yields
+ * FLAT records — `{ type: 'text-delta', index, text }` — while the accumulator's
+ * compact representation nests them under `chunk` or packs them in `texts`.
+ * Guessing wrong fails silently: the reply reads as empty long after a perfectly
+ * good model response arrived.
+ */
+function textOfRecord(record) {
+  if (record.type === 'text-delta' && typeof record.text === 'string') {
+    return { delta: record.text, whole: '' };
+  }
+  if (record.type === 'text-chunks' && Array.isArray(record.texts)) {
+    return { delta: record.texts.join(''), whole: '' };
+  }
+  if (record.type === 'text' && typeof record.text === 'string') {
+    return { delta: '', whole: record.text };
+  }
+  if (record.type === 'chunk' && record.chunk) {
+    const chunk = record.chunk;
+    if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+      return { delta: chunk.text, whole: '' };
+    }
+    if (chunk.type === 'text' && typeof chunk.text === 'string') {
+      return { delta: '', whole: chunk.text };
+    }
+  }
+  return null;
+}
+
+/**
+ * Stream one call through the runtime `llm` service, yielding incremental text.
+ *
+ * Used by the chat box (SSE to the browser). `streamViaLlmService` below is the
+ * accumulate-and-return wrapper kept for the scoring path and its tests.
+ *
+ * @param {object} llm — the DSH `llm` service
+ * @param {{provider:string, model:string, prompt?:string, messages?:object[],
+ *   system?:string, signal?:AbortSignal, timeoutMs?:number, temperature?:number}} opts
+ * @returns {AsyncGenerator<string>}
+ */
+export async function* streamViaLlmServiceDeltas(llm, {
+  provider, model, prompt, messages, system, signal, timeoutMs = 300_000, temperature = 0.4,
+}) {
   const timeoutAc = new AbortController();
   const timer = setTimeout(() => timeoutAc.abort(new Error('LLM call timeout')), timeoutMs);
+  // Combine caller's signal with a hard timeout so a hung fetch can't strand the
+  // request forever (chat streams can otherwise hang mid-reply).
   const combinedSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
   try {
-    const call = await llm.prepareCall({ provider, model, temperature: 0.4 }, combinedSignal);
-    const stream = call.stream({
-      ...call.config,
-      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-    });
-    let deltas = '';
+    const call = await llm.prepareCall({ provider, model, temperature }, combinedSignal);
+    const requestMessages = Array.isArray(messages) && messages.length > 0
+      ? messages
+      : [{ role: 'user', content: [{ type: 'text', text: String(prompt || '') }] }];
+    // `callConfigEquals` only compares provider/model/reasoningEffort/temperature/
+    // maxTokens/stop, so attaching messages + system cannot break the prepared
+    // call guard.
+    const options = { ...call.config, messages: requestMessages, signal: combinedSignal };
+    if (typeof system === 'string' && system) options.system = system;
+    const stream = call.stream(options);
+    let sawDelta = false;
     let whole = '';
-    let sawText = false;
+    let emitted = false;
     for await (const record of stream) {
       if (record == null || typeof record !== 'object') continue;
-      if (record.type === 'text-delta') { deltas += record.text || ''; sawText = true; continue; }
-      if (record.type === 'text-chunks') { deltas += (record.texts || []).join(''); sawText = true; continue; }
-      if (record.type === 'text') { whole += record.text || ''; continue; }
-      if (record.type === 'chunk' && record.chunk) {
-        if (record.chunk.type === 'text-delta') { deltas += record.chunk.text || ''; sawText = true; }
-        else if (record.chunk.type === 'text') { whole += record.chunk.text || ''; }
-        continue;
-      }
       if (record.type === 'finish') {
         const kind = record.reason?.kind;
         if (kind === 'error' || kind === 'aborted') {
           throw record.reason.failure || new Error(`LLM call ${kind}`);
         }
+        continue;
+      }
+      const text = textOfRecord(record);
+      if (!text) continue;
+      if (text.delta) {
+        sawDelta = true;
+        emitted = true;
+        yield text.delta;
+      } else if (text.whole) {
+        whole += text.whole;
       }
     }
     // Prefer streamed deltas; a whole-text record is the fallback for adapters
     // that emit none. Never emit both — that would duplicate the content.
-    const out = sawText ? deltas : whole;
-    if (!out.trim()) {
+    if (!sawDelta && whole) {
+      emitted = true;
+      yield whole;
+    }
+    if (!emitted) {
       throw new Error(`LLM 通过 llm 服务返回了空内容 (provider=${provider}, model=${model})`);
     }
-    return out;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Accumulate a one-shot prompt through the runtime `llm` service. */
+export async function streamViaLlmService(llm, opts) {
+  let out = '';
+  for await (const delta of streamViaLlmServiceDeltas(llm, opts)) out += delta;
+  return out;
+}
+
+function toOpenAiMessages(messages, system) {
+  const out = [];
+  if (typeof system === 'string' && system) out.push({ role: 'system', content: system });
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
+    const text = (Array.isArray(m.content) ? m.content : [])
+      .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('');
+    if (!text) continue;
+    out.push({ role: m.role, content: text });
+  }
+  return out;
+}
+
+/**
+ * Stream a multi-turn chat completion over plain OpenAI-compatible HTTP.
+ *
+ * Only used outside a DSH runtime (the runtime path owns endpoint + credential
+ * resolution); kept so the chat feature degrades instead of dying on a
+ * standalone install.
+ *
+ * @returns {AsyncGenerator<string>} incremental content deltas
+ */
+export async function* streamHttpChatDeltas({
+  baseUrl, apiKey, model, messages, system, signal, timeoutMs = 180_000, temperature = 0.5,
+}) {
+  if (!baseUrl) throw new Error('chat: 当前 provider 没有可用的 HTTP endpoint');
+  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+  const timeoutAc = new AbortController();
+  const timer = setTimeout(() => timeoutAc.abort(new Error('LLM fetch timeout')), timeoutMs);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
+  let emitted = false;
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify({
+        model,
+        messages: toOpenAiMessages(messages, system),
+        stream: true,
+        temperature,
+      }),
+      signal: combinedSignal,
+    });
+    if (!resp.ok || !resp.body) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`LLM HTTP ${resp.status}: ${text.slice(0, 300)}`);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? '';
+          if (typeof delta === 'string' && delta) {
+            emitted = true;
+            yield delta;
+          }
+        } catch { /* skip malformed chunk */ }
+      }
+    }
+    if (!emitted) throw new Error(`LLM 通过 HTTP 返回了空内容 (model=${model})`);
   } finally {
     clearTimeout(timer);
   }

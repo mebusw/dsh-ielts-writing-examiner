@@ -41,6 +41,13 @@ export const STYLE = `
 
 /* ── 工作台分栏 ─────────────────────────────────────────────── */
 .iw-workbench { display: flex; flex: 1; min-height: 0; }
+/* The workbench must be allowed to shrink so the main pane keeps its own
+   scrollbar instead of pushing the dock off the panel. */
+.iw-root > .iw-workbench { min-height: 0; }
+/* Right-hand column: the scrolling screen content plus the bottom chat dock.
+   The sidebar is a sibling, so the dock spans only the right pane. */
+.iw-main-col { flex: 1; min-width: 0; min-height: 0; display: flex;
+  flex-direction: column; }
 .iw-nav { width: 264px; flex: none; border-right: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-1, #fbfbfa); display: flex;
   flex-direction: column; overflow: hidden; }
@@ -250,4 +257,129 @@ export const STYLE = `
 .iw-pdf-render .iw-mermaid { display: block; }
 .iw-pdf-render .iw-mermaid svg { display: block; max-width: 100%; height: auto;
   margin: 0 auto; }
+
+/* ── 底部对话栏 (chat dock) ────────────────────────────────────
+   常驻 .iw-root 的最后一个 flex 子元素：宽度 100%、紧贴面板底部。
+   展开时只占日志区，收起时仍保留标题、引用条与输入行。 */
+.iw-chat { flex: none; width: 100%; min-height: 0; display: flex;
+  flex-direction: column; border-top: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.18));
+  background: var(--dsw-alias-bg-layer-1, #fbfbfa);
+  color: var(--dsw-alias-label-primary, #1a1a1a); }
+.iw-chat.open { max-height: 72%; }
+
+.iw-chat-head { flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; min-height: 38px; }
+.iw-chat-head-title { flex: none; font-size: 13px; font-weight: 700;
+  letter-spacing: -.01em; }
+.iw-chat-head-hint { flex: 1; min-width: 0; font-size: 12px;
+  color: var(--dsw-alias-label-caption, #8a8a8a);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iw-chat-head-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.iw-chat-head-actions > .iw-btn { flex: none; white-space: nowrap; }
+
+.iw-chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: min(42vh, 420px); padding: 10px 14px 12px;
+  background: var(--dsw-alias-bg-base, #f7f7f5);
+  border-top: 1px solid var(--dsw-alias-border-l2); }
+.iw-chat-empty { padding: 18px 8px; text-align: center; font-size: 12px;
+  color: var(--dsw-alias-label-caption, #8a8a8a); }
+
+.iw-chat-msg { display: flex; flex-direction: column; max-width: 78%; min-width: 0; }
+.iw-chat-msg.user { align-self: flex-end; align-items: flex-end; }
+.iw-chat-msg.assistant { align-self: flex-start; align-items: flex-start; }
+.iw-chat-bubble { padding: 8px 12px; border-radius: 12px; font-size: 13px;
+  line-height: 1.55; word-wrap: break-word; overflow-wrap: anywhere; min-width: 0;
+  max-width: 100%; }
+.iw-chat-msg.user .iw-chat-bubble {
+  background: var(--dsw-alias-state-business-primary, #4f7cff);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+  border-bottom-right-radius: 4px; white-space: pre-wrap; }
+.iw-chat-msg.assistant .iw-chat-bubble {
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.18));
+  border-bottom-left-radius: 4px; }
+.iw-chat-msg.assistant .iw-chat-bubble .iw-md > :first-child { margin-top: 0; }
+.iw-chat-msg.assistant .iw-chat-bubble .iw-md > :last-child { margin-bottom: 0; }
+.iw-chat-msg.assistant .iw-chat-bubble .iw-md p { margin: 0 0 .6em; }
+.iw-chat-msg.assistant .iw-chat-bubble .iw-md ul,
+.iw-chat-msg.assistant .iw-chat-bubble .iw-md ol { margin: 0 0 .6em; }
+
+/* saved quote blockquote inside a user bubble */
+.iw-chat-quote { margin: 0 0 6px; padding: 4px 8px; font-size: 12px;
+  line-height: 1.45; white-space: pre-wrap; border-radius: 6px;
+  border-left: 3px solid rgba(255,255,255,.55); background: rgba(255,255,255,.16);
+  color: inherit; }
+.iw-chat-quote:last-child { margin-bottom: 6px; }
+
+/* streaming thinking row + animated caret */
+.iw-chat-thinking { display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 4px; font-size: 12px;
+  color: var(--dsw-alias-label-caption, #8a8a8a); }
+.iw-chat-caret { display: inline-block; width: 5px; height: 12px;
+  background: currentColor; border-radius: 1px; opacity: .5;
+  animation: iw-chat-caret 1s steps(2, start) infinite; }
+@keyframes iw-chat-caret { 0%, 100% { opacity: .12; } 50% { opacity: .8; } }
+
+/* quote chips bar — single line, ellipsised chip text, x to remove */
+.iw-chat-quotes { flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 0; min-width: 0; overflow: hidden; white-space: nowrap; }
+.iw-chat-quotes-label { flex: none; font-size: 12px;
+  color: var(--dsw-alias-label-caption, #8a8a8a); }
+.iw-chat-quote-chip { display: inline-flex; align-items: center; gap: 6px;
+  flex: 0 1 auto; min-width: 0; max-width: 260px; padding: 3px 4px 3px 9px;
+  border-radius: 999px; border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,.04)); font-size: 12px; }
+.iw-chat-quote-text { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.iw-chat-quote-x { flex: none; width: 18px; height: 18px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; background: transparent;
+  color: var(--dsw-alias-label-caption, #8a8a8a); font-size: 14px;
+  line-height: 1; cursor: pointer; }
+.iw-chat-quote-x:hover { background: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-label-primary, #1a1a1a); }
+.iw-chat-quotes > .iw-btn { flex: none; white-space: nowrap; }
+
+/* compact input row */
+.iw-chat-inputrow { flex: none; display: flex; align-items: flex-end; gap: 8px;
+  padding: 8px 12px 10px; border-top: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1, #fbfbfa); }
+.iw-chat-input { flex: 1; min-width: 0; resize: none; display: block;
+  padding: 7px 10px; border-radius: 10px; font: inherit; font-size: 13px;
+  line-height: 1.45; max-height: calc(5 * 1.45em + 14px); overflow-y: hidden;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base, #fff); color: inherit; }
+.iw-chat-input:focus { outline: none;
+  border-color: var(--dsw-alias-state-business-primary, #4f7cff); }
+.iw-chat-inputrow > .iw-btn { flex: none; }
+
+/* dark theme fallbacks (tokens normally carry the theme; these only apply when
+   a token is missing, e.g. outside the DSH shell) */
+@media (prefers-color-scheme: dark) {
+  .iw-chat { background: var(--dsw-alias-bg-layer-1, #1c1c1d); }
+  .iw-chat-log { background: var(--dsw-alias-bg-base, #141415); }
+  .iw-chat-msg.assistant .iw-chat-bubble {
+    background: var(--dsw-alias-bg-layer-1, #242426);
+    border-color: var(--dsw-alias-border-l2, rgba(255,255,255,.14)); }
+  .iw-chat-quote-chip { background: var(--dsw-alias-bg-layer-2, rgba(255,255,255,.08)); }
+  .iw-chat-input { background: var(--dsw-alias-bg-base, #141415); }
+}
+
+/* 移动端：对话栏更紧凑，气泡更宽，隐藏提示文案 */
+@media (max-width: 700px) {
+  .iw-chat-log { max-height: 38vh; padding: 8px 10px; }
+  .iw-chat-msg { max-width: 88%; }
+  .iw-chat-head { padding: 5px 10px; min-height: 34px; }
+  .iw-chat-head-hint { display: none; }
+  .iw-chat-quotes { padding: 5px 10px 0; }
+  .iw-chat-inputrow { padding: 6px 8px 8px; gap: 6px; }
+  /* Keep quoted text readable: on a phone the single-line bar would shrink
+     three chips down to a couple of characters each. Let chips wrap, drop the
+     label, and cap each chip so it can share a line with the clear button. */
+  .iw-chat-quotes { flex-wrap: wrap; white-space: normal; overflow: visible; row-gap: 5px; }
+  .iw-chat-quotes-label { display: none; }
+  .iw-chat-quote-chip { flex: 0 0 auto; max-width: min(260px, calc(100% - 92px)); }
+  .iw-chat-quotes > .iw-btn { flex: none; }
+}
 `;

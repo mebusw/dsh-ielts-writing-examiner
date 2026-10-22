@@ -162,13 +162,24 @@ function renderBlocks(md) {
     // blank line
     if (line.trim() === '') { i++; continue; }
 
-    // paragraph (consume until blank)
+    // paragraph (consume until blank or a block starter). A pipe-row line that
+    // did NOT open a table (e.g. the header half of a table still streaming in)
+    // must be treated as plain text here. Excluding it used to leave `i` unmoved,
+    // so the renderer looped forever — which froze the whole page the moment a
+    // chat reply streamed a table header token by token.
     const para = [];
-    while (i < lines.length && lines[i].trim() !== '' && !/^#{1,6}\s/.test(lines[i]) && !/^```/.test(lines[i]) && !/^[-*]\s/.test(lines[i]) && !/^\d+\.\s/.test(lines[i]) && !/^>\s?/.test(lines[i]) && !/^\|.*\|\s*$/.test(lines[i])) {
+    while (i < lines.length && lines[i].trim() !== '' && !/^#{1,6}\s/.test(lines[i]) && !/^```/.test(lines[i]) && !/^[-*]\s/.test(lines[i]) && !/^\d+\.\s/.test(lines[i]) && !/^>\s?/.test(lines[i])) {
       para.push(lines[i]);
       i++;
     }
-    if (para.length) out.push(`<p>${renderInline(para.join(' '))}</p>`);
+    if (para.length) {
+      out.push(`<p>${renderInline(para.join(' '))}</p>`);
+    } else {
+      // Defensive: no branch above matched, so consume this line as text.
+      // Never leave `i` in place — an unmoved index hangs the page.
+      out.push(`<p>${renderInline(line)}</p>`);
+      i += 1;
+    }
   }
   return out.join('\n');
 }
