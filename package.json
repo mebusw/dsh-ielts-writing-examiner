@@ -3,6 +3,7 @@
   "version": "1.3.1",
   "description": "A DeepSeek Harness Plugin as AI examiner of IELTS writing tasks with scoring and comments, convinient to review practiing histories. IELTS 写作练习与 AI 评分。题目 → 作文 → AI 评分 + 学习记录层。DSH web-profile plugin. Entry lives in the shared dsh-app-dock.",
   "type": "module",
+  "packageManager": "pnpm@10.14.0",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
